@@ -1,16 +1,14 @@
 const axios = require('axios');
 require('dotenv').config();
 
-const ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
-const BIZ_ID = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
-const BASE_URL = 'https://graph.facebook.com/v25.0';
+const BASE_URL = 'https://graph.facebook.com/v21.0';
 
-async function getBusinessProfile() {
+async function getBusinessProfile(bizId, token) {
     try {
-        const res = await axios.get(`${BASE_URL}/${BIZ_ID}`, {
+        const res = await axios.get(`${BASE_URL}/${bizId}`, {
             params: {
                 fields: 'username,id,name,biography,profile_picture_url',
-                access_token: ACCESS_TOKEN
+                access_token: token
             }
         });
         return res.data;
@@ -20,12 +18,12 @@ async function getBusinessProfile() {
     }
 }
 
-async function getMediaMetadata(mediaId) {
+async function getMediaMetadata(mediaId, token) {
     try {
         const res = await axios.get(`${BASE_URL}/${mediaId}`, {
             params: {
                 fields: 'id,caption,media_type,media_url,timestamp,username',
-                access_token: ACCESS_TOKEN
+                access_token: token
             }
         });
         return res.data;
@@ -35,15 +33,15 @@ async function getMediaMetadata(mediaId) {
     }
 }
 
-async function sendMessage(recipientId, text) {
+async function sendMessage(recipientId, text, token) {
     if (recipientId === 'test_user') return { success: true };
 
     try {
-        const res = await axios.post(`${BASE_URL}/${BIZ_ID}/messages`, {
+        const res = await axios.post(`${BASE_URL}/me/messages`, {
             recipient: { id: recipientId },
             message: { text }
         }, {
-            params: { access_token: ACCESS_TOKEN }
+            params: { access_token: token }
         });
         console.log(`Sent DM to ${recipientId}`);
         return res.data;
@@ -53,12 +51,65 @@ async function sendMessage(recipientId, text) {
     }
 }
 
-async function replyToComment(commentId, text) {
+async function sendButtonMessage(recipientId, text, buttons, token) {
+    if (recipientId === 'test_user') return { success: true };
+
+    try {
+        const res = await axios.post(`${BASE_URL}/me/messages`, {
+            recipient: { id: recipientId },
+            message: {
+                attachment: {
+                    type: 'template',
+                    payload: {
+                        template_type: 'button',
+                        text: text,
+                        buttons: buttons
+                    }
+                }
+            }
+        }, {
+            params: { access_token: token }
+        });
+        console.log(`Sent Button Message to ${recipientId}`);
+        return res.data;
+    } catch (err) {
+        console.error(`Failed Button Message to ${recipientId}:`, err.response?.data || err.message);
+        throw err;
+    }
+}
+
+async function sendGenericTemplate(recipientId, elements, token) {
+    if (recipientId === 'test_user') return { success: true };
+
+    try {
+        const res = await axios.post(`${BASE_URL}/me/messages`, {
+            recipient: { id: recipientId },
+            message: {
+                attachment: {
+                    type: 'template',
+                    payload: {
+                        template_type: 'generic',
+                        elements: elements
+                    }
+                }
+            }
+        }, {
+            params: { access_token: token }
+        });
+        console.log(`Sent Generic Template to ${recipientId}`);
+        return res.data;
+    } catch (err) {
+        console.error(`Failed Generic Template to ${recipientId}:`, err.response?.data || err.message);
+        throw err;
+    }
+}
+
+async function replyToComment(commentId, text, token) {
     try {
         const res = await axios.post(`${BASE_URL}/${commentId}/replies`, null, {
             params: {
                 message: text,
-                access_token: ACCESS_TOKEN
+                access_token: token
             }
         });
         console.log(`Replied to comment ${commentId}`);
@@ -69,12 +120,12 @@ async function replyToComment(commentId, text) {
     }
 }
 
-async function sendPrivateReply(commentId, text) {
+async function sendPrivateReply(commentId, text, token) {
     try {
         const res = await axios.post(`${BASE_URL}/${commentId}/private_replies`, null, {
             params: {
                 message: text,
-                access_token: ACCESS_TOKEN
+                access_token: token
             }
         });
         console.log(`Sent private reply to ${commentId}`);
@@ -89,6 +140,8 @@ module.exports = {
     getBusinessProfile,
     getMediaMetadata,
     sendMessage,
+    sendButtonMessage,
+    sendGenericTemplate,
     replyToComment,
     sendPrivateReply
 };

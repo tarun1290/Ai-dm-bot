@@ -1,7 +1,6 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
-// Stores every meaningful Instagram event the bot sees
-const eventSchema = new mongoose.Schema({
+const EventSchema = new mongoose.Schema({
     type: {
         type: String,
         enum: ['comment', 'mention', 'dm', 'reel_share', 'reaction', 'bot_restart', 'postback'],
@@ -34,4 +33,4 @@ const eventSchema = new mongoose.Schema({
     }
 });
 
-module.exports = mongoose.model('Event', eventSchema);
+export default mongoose.models.Event || mongoose.model('Event', EventSchema);

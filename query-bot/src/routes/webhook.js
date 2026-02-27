@@ -1,21 +1,20 @@
 const express = require('express');
 const axios = require('axios');
-const { replyToComment, sendPrivateReply } = require('../services/instagram');
+const { replyToComment, sendPrivateReply, sendButtonMessage, sendGenericTemplate } = require('../services/instagram');
 const { isConnected } = require('../../config/db');
 const Event = require('../models/Event');
+const User = require('../models/User');
 const { log } = require('../utils/logger');
 
 const router = express.Router();
 
-const ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
-const BASE_URL = 'https://graph.facebook.com/v25.0';
-const BOT_ID = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
+const BASE_URL = 'https://graph.facebook.com/v21.0';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
 const userCache = new Map();
 const repliedComments = new Set();
-const PUBLIC_REPLY = 'check your dm';
-const PRIVATE_REPLY = 'Hii how can i help you';
+const PUBLIC_REPLY = 'Check your DM! 📩 I\'ve sent you the details there.';
+const PRIVATE_REPLY = 'Hi there! 👋 Thanks for reaching out. How can I help you today?';
 
 // Save event to DB if connected
 async function saveEvent(data) {
@@ -27,13 +26,13 @@ async function saveEvent(data) {
     }
 }
 
-async function getMedia(id) {
+async function getMedia(id, token) {
     if (!id) return null;
     try {
         const res = await axios.get(`${BASE_URL}/${id}`, {
             params: {
-                fields: 'id,media_type,permalink,shortcode,timestamp,username',
-                access_token: ACCESS_TOKEN
+                fields: 'id,media_type,permalink,media_url,thumbnail_url,shortcode,timestamp,username',
+                access_token: token
             }
         });
         return res.data;
@@ -43,11 +42,11 @@ async function getMedia(id) {
     }
 }
 
-async function getUser(id) {
+async function getUser(id, token) {
     if (!id) return null;
     try {
         const res = await axios.get(`${BASE_URL}/${id}`, {
-            params: { fields: 'name,username', access_token: ACCESS_TOKEN }
+            params: { fields: 'name,username', access_token: token }
         });
         return res.data;
     } catch (err) {
@@ -56,14 +55,14 @@ async function getUser(id) {
     }
 }
 
-async function sendDM(id, text) {
+async function sendDM(id, text, token) {
     if (!id || !text) return;
     try {
         await axios.post(`${BASE_URL}/me/messages`, {
             recipient: { id },
             message: { text }
         }, {
-            params: { access_token: ACCESS_TOKEN }
+            params: { access_token: token }
         });
         log(`[DM Sent] -> ${id}: ${text.substring(0, 20)}...`);
     } catch (err) {
@@ -71,33 +70,87 @@ async function sendDM(id, text) {
     }
 }
 
-async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload) {
+async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation) {
     if (!commentId || repliedComments.has(commentId)) return;
+    
+    // Check if automation is active
+    if (!automation || !automation.isActive) {
+        log(`[AutoReply] No active automation for user: ${fromInfo?.username}`);
+        return;
+    }
+
+    // 1. Check Post Trigger
+    const mediaId = rawPayload.media_id || rawPayload.post_id;
+    if (automation.postTrigger === 'specific' && automation.selectedPostId && mediaId !== automation.selectedPostId) {
+        log(`[AutoReply] Skipped: Media ID mismatch (${mediaId} != ${automation.selectedPostId})`);
+        return;
+    }
+
+    // 2. Check Comment Trigger
+    const commentText = (fromInfo?.text || "").toLowerCase();
+    if (automation.commentTrigger === 'specific' && automation.keywords?.length > 0) {
+        const hasKeyword = automation.keywords.some(k => commentText.includes(k.toLowerCase()));
+        if (!hasKeyword) {
+            log(`[AutoReply] Skipped: Keyword not found in "${commentText}"`);
+            return;
+        }
+    }
 
     let replyStatus = 'skipped';
+    
+    // Pick a random reply or use the first one
+    const publicReply = automation.replyMessages?.length > 0 
+        ? automation.replyMessages[Math.floor(Math.random() * automation.replyMessages.length)]
+        : 'Check your DM! 📩';
+    
+    const privateDM = automation.dmContent || 'Hi there! 👋 Thanks for reaching out.';
 
     try {
         log(`[AutoReply] Processing ${type} for ${commentId}`);
 
         // Public reply on comment
-        try {
-            await replyToComment(commentId, PUBLIC_REPLY);
-            log(`[Public] Posted: ${PUBLIC_REPLY}`);
-        } catch (e) {
-            log(`[Public Fail] ${e.message}`);
+        if (automation.replyEnabled) {
+            try {
+                await replyToComment(commentId, publicReply, token);
+                log(`[Public] Posted: ${publicReply}`);
+            } catch (e) {
+                log(`[Public Fail] ${e.message}`);
+            }
         }
 
-        // Private DM
-        log(`[DM] Sending private message...`);
-        const dm = await sendPrivateReply(commentId, PRIVATE_REPLY);
-
-        if (!dm) {
-            log(`[DM Fallback] Using direct messaging for ${senderId}`);
-            await sendDM(senderId, PRIVATE_REPLY);
-            replyStatus = 'fallback';
+        // Private DM (Opening DM with optional Button)
+        if (automation.buttonText && automation.linkUrl) {
+            log(`[DM] Sending button message...`);
+            const buttons = [
+                {
+                    type: 'web_url',
+                    url: automation.linkUrl,
+                    title: automation.buttonText
+                }
+            ];
+            
+            try {
+                await sendButtonMessage(senderId, privateDM, buttons, token);
+                log(`[DM Success] Button message sent`);
+                replyStatus = 'sent';
+            } catch (err) {
+                log(`[Button Fail] Falling back to direct DM: ${err.message}`);
+                await sendDM(senderId, `${privateDM}\n\n${automation.linkUrl}`, token);
+                replyStatus = 'fallback';
+            }
         } else {
-            log(`[DM success] Sent via API`);
-            replyStatus = 'sent';
+            // Regular DM
+            log(`[DM] Sending private reply...`);
+            const dm = await sendPrivateReply(commentId, privateDM, token);
+
+            if (!dm) {
+                log(`[DM Fallback] Using direct messaging for ${senderId}`);
+                await sendDM(senderId, privateDM, token);
+                replyStatus = 'fallback';
+            } else {
+                log(`[DM success] Sent via API`);
+                replyStatus = 'sent';
+            }
         }
 
         repliedComments.add(commentId);
@@ -109,8 +162,8 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload) 
     await saveEvent({
         type,
         from: { id: fromInfo?.id, username: fromInfo?.username },
-        content: { commentId, text: fromInfo?.text },
-        reply: { publicReply: PUBLIC_REPLY, privateDM: PRIVATE_REPLY, status: replyStatus },
+        content: { commentId, text: fromInfo?.text, mediaId },
+        reply: { publicReply, privateDM, status: replyStatus },
         raw: rawPayload
     });
 }
@@ -132,12 +185,23 @@ router.post('/', async (req, res) => {
     const entries = body.entry || [];
 
     for (const entry of entries) {
+        // Find the user/bot this event is for
+        const targetId = entry.id; // Business account ID
+        const botUser = await User.findOne({ instagramBusinessId: targetId });
+        
+        if (!botUser || !botUser.instagramAccessToken) {
+            log(`[Webhook] No active bot found for ID: ${targetId}`);
+            continue;
+        }
+
+        const token = botUser.instagramAccessToken;
+
         // Comments & Mentions
         const changes = entry.changes || [];
         for (const change of changes) {
             const { field, value } = change;
             const fromId = value.from?.id || value.sender_id;
-            if (fromId === BOT_ID) continue;
+            if (fromId === targetId) continue;
 
             if (field === 'feed' || field === 'comments') {
                 if (value.item === 'comment' || field === 'comments') {
@@ -147,7 +211,7 @@ router.post('/', async (req, res) => {
                         id: fromId,
                         username: value.from?.username,
                         text: value.message || value.text
-                    }, change);
+                    }, value, token, botUser.automation);
                 }
             }
 
@@ -158,48 +222,119 @@ router.post('/', async (req, res) => {
                     id: fromId,
                     username: value.from?.username,
                     text: value.text
-                }, change);
+                }, value, token, botUser.automation);
             }
         }
 
-        // Direct Messages & Reel Shares
+        // Direct Messages, Reel Shares & Postbacks
         const messaging = entry.messaging || entry.standby || [];
         for (const event of messaging) {
             const senderId = event.sender?.id || event.from?.id;
-            if (!event.message || senderId === BOT_ID) continue;
+            if (senderId === targetId) continue;
 
-            let profile = userCache.get(senderId);
-            if (!profile) {
-                profile = await getUser(senderId);
-                if (profile) userCache.set(senderId, profile);
+            // 1. Handle Messages (Text, Attachments, Reel Shares)
+            if (event.message) {
+                let profile = userCache.get(senderId);
+                if (!profile) {
+                    profile = await getUser(senderId, token);
+                    if (profile) userCache.set(senderId, profile);
+                }
+
+                const msgText = event.message.text;
+                if (msgText) log(`[Message] @${profile?.username || 'user'}: ${msgText}`);
+
+                const attachments = event.message.attachments || [];
+                for (const att of attachments) {
+                    const mediaId = att.payload?.reel_video_id || att.payload?.media?.id || att.payload?.id;
+                    let url = att.payload?.url || att.url;
+
+                    if (mediaId) {
+                        const meta = await getMedia(mediaId, token);
+                        if (meta?.permalink) url = meta.permalink;
+                    }
+
+                    if (url) {
+                        log(`[Shared] URL: ${url}`);
+                        const greeting = `Hi ${profile?.name?.split(' ')[0] || 'there'}! 👋`;
+                        const text = `${greeting} I've detected that you shared a reel! ✨ Here is the direct link for easy access.`;
+                        
+                        const buttons = [
+                            {
+                                type: 'web_url',
+                                url: url,
+                                title: 'Watch Reel 🎬'
+                            }
+                        ];
+
+                        let sent = false;
+
+                        // Try Generic Template with media preview
+                        if (mediaId) {
+                            try {
+                                const meta = await getMedia(mediaId, token);
+                                if (meta && (meta.thumbnail_url || meta.media_url)) {
+                                    const elements = [{
+                                        title: 'Reel Shared with You! ✨',
+                                        image_url: meta.thumbnail_url || meta.media_url,
+                                        subtitle: meta.username ? `A masterpiece shared by @${meta.username}. Tap below to watch!` : `${greeting} I've retrieved the link for you!`,
+                                        buttons: buttons
+                                    }];
+                                    await sendGenericTemplate(senderId, elements, token);
+                                    log(`[Generic Sent] -> ${senderId}`);
+                                    sent = true;
+                                }
+                            } catch (e) {
+                                log(`[Meta Fetch Fail] Falling back to Button Template`);
+                            }
+                        }
+
+                        // Fallback to Button Template
+                        if (!sent) {
+                            try {
+                                await sendButtonMessage(senderId, text, buttons, token);
+                                log(`[Button Sent] -> ${senderId}`);
+                                sent = true;
+                            } catch (err) {
+                                log(`[Template Fail] Falling back to text DM`);
+                                const fallbackReply = `${text}\n\n${url}`;
+                                await sendDM(senderId, fallbackReply, token);
+                            }
+                        }
+
+                        await saveEvent({
+                            type: 'reel_share',
+                            from: { id: senderId, username: profile?.username, name: profile?.name },
+                            content: { mediaId, url },
+                            reply: { privateDM: text, status: 'sent', variant: sent ? 'template' : 'text' },
+                            raw: event
+                        });
+                    }
+                }
             }
 
-            const msgText = event.message.text;
-            if (msgText) log(`[Message] @${profile?.username || 'user'}: ${msgText}`);
+            // 2. Handle Postbacks (Button Clicks)
+            if (event.postback) {
+                const payload = event.postback.payload;
+                const title = event.postback.title;
+                log(`[Postback] From ${senderId}: ${title} (${payload})`);
 
-            const attachments = event.message.attachments || [];
-            for (const att of attachments) {
-                const mediaId = att.payload?.reel_video_id || att.payload?.media?.id || att.payload?.id;
-                let url = att.payload?.url || att.url;
-
-                if (mediaId) {
-                    const meta = await getMedia(mediaId);
-                    if (meta?.permalink) url = meta.permalink;
+                let replyText = "Thanks for your choice! 🌟";
+                
+                if (payload === 'GET_DOCS_PAYLOAD') {
+                    replyText = "Sure! 📚 You can find our documentation at: https://github.com/amanraj2408/Query-Bot/blob/main/README.md";
+                } else if (payload === 'CONTACT_SUPPORT_PAYLOAD') {
+                    replyText = "Our support team has been notified. 💬 We'll get back to you shortly!";
                 }
 
-                if (url) {
-                    log(`[Shared] URL: ${url}`);
-                    const reply = `Hi ${profile?.name?.split(' ')[0] || 'there'}! Here is your link:\n\n${url}`;
-                    await sendDM(senderId, reply);
+                await sendDM(senderId, replyText, token);
 
-                    await saveEvent({
-                        type: 'reel_share',
-                        from: { id: senderId, username: profile?.username, name: profile?.name },
-                        content: { mediaId, url },
-                        reply: { privateDM: reply, status: 'sent' },
-                        raw: event
-                    });
-                }
+                await saveEvent({
+                    type: 'postback',
+                    from: { id: senderId },
+                    content: { text: title, url: payload },
+                    reply: { privateDM: replyText, status: 'sent' },
+                    raw: event
+                });
             }
         }
     }
