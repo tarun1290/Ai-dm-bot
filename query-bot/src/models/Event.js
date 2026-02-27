@@ -7,6 +7,7 @@ const eventSchema = new mongoose.Schema({
         enum: ['comment', 'mention', 'dm', 'reel_share', 'reaction', 'bot_restart', 'postback'],
         required: true
     },
+    targetBusinessId: String,
     from: {
         id: String,
         username: String,

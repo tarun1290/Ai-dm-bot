@@ -10,20 +10,8 @@ const { LOG_FILE } = require('./src/utils/logger');
 const Event = require('./src/models/Event');
 const { isConnected } = require('./config/db');
 
-// Make sure logs folder exists
-const logsDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir);
-
 // Connect to MongoDB
 connectDB();
-
-// Log restart event
-fs.appendFileSync(LOG_FILE, `\n--- RESTART: ${new Date().toLocaleString()} ---\n`);
-(async () => {
-    if (isConnected()) {
-        await Event.create({ type: 'bot_restart', content: { text: `Restarted at ${new Date().toISOString()}` } });
-    }
-})();
 
 const app = express();
 app.use(bodyParser.json());
@@ -32,7 +20,13 @@ app.use(bodyParser.json());
 app.get('/', (req, res) => res.send('Query Bot API is Live 🚀'));
 app.use('/webhook', webhookRouter);
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}...`);
-});
+// Export the app for Vercel
+module.exports = app;
+
+// Only listen if running locally
+if (process.env.NODE_ENV !== 'production') {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}...`);
+    });
+}

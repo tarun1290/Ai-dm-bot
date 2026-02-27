@@ -6,28 +6,42 @@ import User from "@/models/User";
 import { auth, currentUser } from "@clerk/nextjs/server";
 
 export async function getDashboardStats() {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Unauthorized");
+
   await dbConnect();
   
-  const totalContacts = await Event.distinct("from.id").countDocuments();
+  const user = await User.findOne({ clerkId: userId });
+  if (!user || !user.isConnected) {
+    return { contacts: 0, sentToday: 0, transmissionTrend: 0, latestEvents: [] };
+  }
+
+  const businessId = user.instagramBusinessId;
+  
+  const totalContacts = await Event.distinct("from.id", { targetBusinessId: businessId }).then(ids => ids.length);
   
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   
   const sentToday = await Event.countDocuments({
+    targetBusinessId: businessId,
     "reply.status": "sent",
     createdAt: { $gte: startOfDay }
   });
   
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
+  const startOfYesterday = new Date(yesterday.setHours(0,0,0,0));
+  
   const sentYesterday = await Event.countDocuments({
+      targetBusinessId: businessId,
       "reply.status": "sent",
-      createdAt: { $gte: yesterday, $lt: startOfDay }
+      createdAt: { $gte: startOfYesterday, $lt: startOfDay }
   });
 
   const transmissionTrend = sentYesterday === 0 ? 0 : Math.round(((sentToday - sentYesterday) / sentYesterday) * 100);
 
-  const latestEvents = await Event.find()
+  const latestEvents = await Event.find({ targetBusinessId: businessId })
     .sort({ createdAt: -1 })
     .limit(5)
     .lean();
@@ -38,28 +52,6 @@ export async function getDashboardStats() {
     transmissionTrend,
     latestEvents: JSON.parse(JSON.stringify(latestEvents))
   };
-}
-
-export async function saveInstagramAccount(data) {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Unauthorized");
-
-  await dbConnect();
-
-  const user = await User.findOneAndUpdate(
-    { clerkId: userId },
-    {
-      instagramAccessToken: data.pageAccessToken || data.accessToken,
-      instagramBusinessId: data.instagramBusinessId,
-      instagramUsername: data.instagramUsername,
-      pageId: data.pageId,
-      pageAccessToken: data.pageAccessToken,
-      isConnected: true,
-    },
-    { upsert: true, new: true }
-  );
-
-  return { success: true, user: JSON.parse(JSON.stringify(user)) };
 }
 
 export async function getAccountsFromToken(token) {
@@ -78,13 +70,7 @@ export async function getAccountsFromToken(token) {
     console.log(`[Discovery] Found ${data.data?.length || 0} potential accounts. Checking for Instagram links...`);
     
     const accounts = data.data
-      ?.filter(p => {
-        if (!p.instagram_business_account) {
-          console.log(`[Discovery] Page "${p.name}" has no linked Instagram Business account.`);
-          return false;
-        }
-        return true;
-      })
+      ?.filter(p => !!p.instagram_business_account)
       .map(p => ({
         pageId: p.id,
         pageToken: p.access_token,
@@ -110,11 +96,11 @@ export async function saveDiscoveredAccount(details) {
 
   await dbConnect();
 
-  // Prefer the user-pasted token; fall back to the page token from Meta OAuth
+  // For product-ready automation, the Page Access Token is used to interact with Instagram
   const accessToken = details.userToken || details.pageToken;
 
   if (!accessToken) {
-    return { success: false, error: "No Instagram access token available." };
+    return { success: false, error: "No access token found for this account." };
   }
 
   const user = await User.findOneAndUpdate(
@@ -131,37 +117,6 @@ export async function saveDiscoveredAccount(details) {
   );
 
   return { success: true, username: details.username };
-}
-
-export async function autoConnectBotAccount() {
-  const { userId } = await auth();
-  if (!userId) throw new Error("Unauthorized");
-
-  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
-  const businessId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID;
-
-  if (!accessToken || !businessId) {
-    throw new Error("Bot credentials not found in environment variables");
-  }
-
-  // Fetch username for completeness
-  const igRes = await fetch(`https://graph.facebook.com/v25.0/${businessId}?access_token=${accessToken}&fields=username`);
-  const igData = await igRes.json();
-
-  await dbConnect();
-
-  const user = await User.findOneAndUpdate(
-    { clerkId: userId },
-    {
-      instagramAccessToken: accessToken,
-      instagramBusinessId: businessId,
-      instagramUsername: igData.username || "InstagramBot",
-      isConnected: true,
-    },
-    { upsert: true, new: true }
-  );
-
-  return { success: true, user: JSON.parse(JSON.stringify(user)) };
 }
 
 export async function saveAutomation(data) {
@@ -237,3 +192,4 @@ export async function getInstagramAccount() {
     automation: user.automation ? JSON.parse(JSON.stringify(user.automation)) : null
   };
 }
+

@@ -11,16 +11,11 @@ const router = express.Router();
 const BASE_URL = 'https://graph.facebook.com/v21.0';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
-const userCache = new Map();
-const repliedComments = new Set();
-const PUBLIC_REPLY = 'Check your DM! 📩 I\'ve sent you the details there.';
-const PRIVATE_REPLY = 'Hi there! 👋 Thanks for reaching out. How can I help you today?';
-
 // Save event to DB if connected
-async function saveEvent(data) {
+async function saveEvent(data, targetBusinessId) {
     if (!isConnected()) return;
     try {
-        await Event.create(data);
+        return await Event.create({ ...data, targetBusinessId });
     } catch (err) {
         console.error('[DB] Failed to save event:', err.message);
     }
@@ -71,11 +66,20 @@ async function sendDM(id, text, token) {
 }
 
 async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation) {
-    if (!commentId || repliedComments.has(commentId)) return;
+    if (!commentId) return;
+
+    // Product Ready: Use DB to check for duplicate replies instead of memory
+    if (isConnected()) {
+        const existingEvent = await Event.findOne({ "content.commentId": commentId, "reply.status": "sent" });
+        if (existingEvent) {
+            log(`[Skip] Already replied to comment: ${commentId}`);
+            return;
+        }
+    }
     
     // Check if automation is active
     if (!automation || !automation.isActive) {
-        log(`[AutoReply] No active automation for user: ${fromInfo?.username}`);
+        log(`[AutoReply] No active automation for user: ${fromInfo?.username || 'unknown'}`);
         return;
     }
 
@@ -152,8 +156,6 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
                 replyStatus = 'sent';
             }
         }
-
-        repliedComments.add(commentId);
     } catch (err) {
         log(`[Error] ${type} handling failed: ${err.message}`);
         replyStatus = 'failed';
@@ -165,7 +167,7 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
         content: { commentId, text: fromInfo?.text, mediaId },
         reply: { publicReply, privateDM, status: replyStatus },
         raw: rawPayload
-    });
+    }, automation.instagramBusinessId);
 }
 
 // Webhook verification
@@ -185,23 +187,31 @@ router.post('/', async (req, res) => {
     const entries = body.entry || [];
 
     for (const entry of entries) {
-        // Find the user/bot this event is for
-        const targetId = entry.id; // Business account ID
-        const botUser = await User.findOne({ instagramBusinessId: targetId });
+        const targetId = entry.id; // Usually the Instagram Business Account ID or Page ID
+        
+        // Find the user by either ID (support flexible matching for various app setups)
+        const botUser = await User.findOne({ 
+            $or: [
+                { instagramBusinessId: targetId },
+                { pageId: targetId }
+            ]
+        });
         
         if (!botUser || !botUser.instagramAccessToken) {
-            log(`[Webhook] No active bot found for ID: ${targetId}`);
+            log(`[Webhook] No active account found in system for ID: ${targetId}`);
             continue;
         }
 
         const token = botUser.instagramAccessToken;
 
-        // Comments & Mentions
+        // 1. Comments & Mentions (Feed)
         const changes = entry.changes || [];
         for (const change of changes) {
             const { field, value } = change;
             const fromId = value.from?.id || value.sender_id;
-            if (fromId === targetId) continue;
+            
+            // Ignore messages from the bot itself
+            if (fromId === targetId || fromId === botUser.instagramBusinessId) continue;
 
             if (field === 'feed' || field === 'comments') {
                 if (value.item === 'comment' || field === 'comments') {
@@ -211,7 +221,7 @@ router.post('/', async (req, res) => {
                         id: fromId,
                         username: value.from?.username,
                         text: value.message || value.text
-                    }, value, token, botUser.automation);
+                    }, value, token, { ...botUser.automation, instagramBusinessId: botUser.instagramBusinessId });
                 }
             }
 
@@ -222,24 +232,19 @@ router.post('/', async (req, res) => {
                     id: fromId,
                     username: value.from?.username,
                     text: value.text
-                }, value, token, botUser.automation);
+                }, value, token, { ...botUser.automation, instagramBusinessId: botUser.instagramBusinessId });
             }
         }
 
-        // Direct Messages, Reel Shares & Postbacks
+        // 2. Direct Messages & Postbacks
         const messaging = entry.messaging || entry.standby || [];
         for (const event of messaging) {
             const senderId = event.sender?.id || event.from?.id;
-            if (senderId === targetId) continue;
+            if (senderId === targetId || senderId === botUser.instagramBusinessId) continue;
 
-            // 1. Handle Messages (Text, Attachments, Reel Shares)
+            // Handle Messages (Text, Reels, etc.)
             if (event.message) {
-                let profile = userCache.get(senderId);
-                if (!profile) {
-                    profile = await getUser(senderId, token);
-                    if (profile) userCache.set(senderId, profile);
-                }
-
+                const profile = await getUser(senderId, token);
                 const msgText = event.message.text;
                 if (msgText) log(`[Message] @${profile?.username || 'user'}: ${msgText}`);
 
@@ -258,17 +263,9 @@ router.post('/', async (req, res) => {
                         const greeting = `Hi ${profile?.name?.split(' ')[0] || 'there'}! 👋`;
                         const text = `${greeting} I've detected that you shared a reel! ✨ Here is the direct link for easy access.`;
                         
-                        const buttons = [
-                            {
-                                type: 'web_url',
-                                url: url,
-                                title: 'Watch Reel 🎬'
-                            }
-                        ];
-
+                        const buttons = [{ type: 'web_url', url: url, title: 'Watch Reel 🎬' }];
                         let sent = false;
 
-                        // Try Generic Template with media preview
                         if (mediaId) {
                             try {
                                 const meta = await getMedia(mediaId, token);
@@ -288,7 +285,6 @@ router.post('/', async (req, res) => {
                             }
                         }
 
-                        // Fallback to Button Template
                         if (!sent) {
                             try {
                                 await sendButtonMessage(senderId, text, buttons, token);
@@ -296,8 +292,7 @@ router.post('/', async (req, res) => {
                                 sent = true;
                             } catch (err) {
                                 log(`[Template Fail] Falling back to text DM`);
-                                const fallbackReply = `${text}\n\n${url}`;
-                                await sendDM(senderId, fallbackReply, token);
+                                await sendDM(senderId, `${text}\n\n${url}`, token);
                             }
                         }
 
@@ -305,21 +300,20 @@ router.post('/', async (req, res) => {
                             type: 'reel_share',
                             from: { id: senderId, username: profile?.username, name: profile?.name },
                             content: { mediaId, url },
-                            reply: { privateDM: text, status: 'sent', variant: sent ? 'template' : 'text' },
+                            reply: { privateDM: text, status: 'sent' },
                             raw: event
-                        });
+                        }, botUser.instagramBusinessId);
                     }
                 }
             }
 
-            // 2. Handle Postbacks (Button Clicks)
+            // Handle Postbacks (Buttons)
             if (event.postback) {
                 const payload = event.postback.payload;
                 const title = event.postback.title;
                 log(`[Postback] From ${senderId}: ${title} (${payload})`);
 
                 let replyText = "Thanks for your choice! 🌟";
-                
                 if (payload === 'GET_DOCS_PAYLOAD') {
                     replyText = "Sure! 📚 You can find our documentation at: https://github.com/amanraj2408/Query-Bot/blob/main/README.md";
                 } else if (payload === 'CONTACT_SUPPORT_PAYLOAD') {
@@ -334,7 +328,7 @@ router.post('/', async (req, res) => {
                     content: { text: title, url: payload },
                     reply: { privateDM: replyText, status: 'sent' },
                     raw: event
-                });
+                }, botUser.instagramBusinessId);
             }
         }
     }
@@ -343,3 +337,4 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+
