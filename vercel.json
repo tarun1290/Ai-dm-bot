@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "functions": {
+    "query-bot/index.js": {
+      "runtime": "vercel-node@latest"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/webhook(.*)",
+      "destination": "/query-bot/index.js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/dashboard/$1"
+    }
+  ]
+}
