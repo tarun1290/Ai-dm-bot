@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import Script from "next/script";
 import { cn } from "@/lib/utils";
 import { getAccountsFromToken, saveDiscoveredAccount } from "../dashboard/actions";
 
@@ -30,38 +29,17 @@ export default function Onboarding() {
 
   const appId = process.env.NEXT_PUBLIC_META_APP_ID || "839586385802767";
 
-  // Initialize Instagram SDK (via Meta)
-  const initInstagramSDK = () => {
-    if (window.FB && !window.fbInitialized) {
-      window.FB.init({
-        appId: appId,
-        cookie: false,
-        xfbml: true,
-        version: 'v25.0'
-      });
-      window.fbInitialized = true;
-      console.log("Onboarding: Instagram API Initialized");
-    }
-  };
+
 
   useEffect(() => {
     setIsMounted(true);
     
-    // Catch Access Token from URL Fragment (for Implicit flow)
-    if (window.location.hash) {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const accessToken = params.get("access_token");
-      if (accessToken) {
-        window.history.replaceState(null, null, window.location.pathname);
-        handleOAuthTokenDiscovery(accessToken);
-      }
-    }
-
-    // Catch Authorization Code from URL Query (for Code flow)
+    // Catch Authorization Code from URL Query (Official Instagram Business Login flow)
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
+    
     if (code) {
+      console.log("Onboarding: Code detected, starting discovery...");
       // Clear query for cleaner URL
       window.history.replaceState(null, null, window.location.pathname);
       handleOAuthTokenDiscovery(code, true);
@@ -96,30 +74,26 @@ export default function Onboarding() {
   };
 
   const handleInstagramLogin = () => {
-    if (!window.FB) {
-      alert("Instagram API not ready. Please refresh.");
-      return;
-    }
     setLoading(true);
     
-    // window.FB.login() opens the secure popup as requested (no full page redirect)
-    // Adding brand: 'instagram' and Business Login scopes forces the 
-    // modern dark-themed Instagram permission UI shown in the manager's target screenshot.
-    window.FB.login((response) => {
-      console.log("Instagram Login Success:", response);
-      if (response.authResponse) {
-        const accessToken = response.authResponse.accessToken;
-        handleOAuthTokenDiscovery(accessToken);
-      } else {
-        setLoading(false);
-        console.log("User cancelled login.");
-      }
-    }, {
-      scope: 'instagram_basic,instagram_manage_comments,instagram_manage_messages,pages_show_list,pages_read_engagement',
-      brand: 'instagram',
-      display: 'popup',
-      auth_type: 'rerequest' // Use this to ensure the permission dialog shows up with IG branding
-    });
+    // Official Instagram Business Login OAuth Redirect
+    // This forces the DARK Instagram-branded permission screen
+    const scopes = [
+        'instagram_basic',
+        'instagram_manage_comments',
+        'instagram_manage_messages',
+        'instagram_content_publish',
+        'pages_show_list',
+        'pages_read_engagement'
+    ].join(',');
+
+    const redirectUri = `${window.location.origin}/onboarding`;
+    
+    // Force the Instagram-specific authorization endpoint
+    // enable_fb_login=0 removes any Facebook-branded buttons/UI
+    const authUrl = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&enable_fb_login=0`;
+    
+    window.location.href = authUrl;
   };
 
   const handleOAuthTokenDiscovery = async (tokenOrCode, isCode = false) => {
@@ -310,13 +284,7 @@ export default function Onboarding() {
           <p className="text-[11px] font-black text-pink-600 uppercase tracking-widest animate-pulse">Connecting to Instagram...</p>
         </div>
       )}
-      <Script 
-        src="https://connect.facebook.net/en_US/sdk.js" 
-        strategy="afterInteractive" 
-        onLoad={() => {
-          initInstagramSDK();
-        }}
-      />
+
     </div>
   );
 }
