@@ -46,6 +46,18 @@ export default function Onboarding() {
 
   useEffect(() => {
     setIsMounted(true);
+    
+    // Catch Access Token from URL Fragment (for Redirect flow)
+    if (window.location.hash) {
+      const hash = window.location.hash.substring(1);
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get("access_token");
+      if (accessToken) {
+        // Clear hash for cleaner URL
+        window.history.replaceState(null, null, window.location.pathname);
+        handleOAuthTokenDiscovery(accessToken);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -76,25 +88,15 @@ export default function Onboarding() {
   };
 
   const handleInstagramLogin = () => {
-    if (!window.FB) {
-      alert("Instagram SDK not loaded yet. Please wait.");
-      return;
-    }
-    console.log("Onboarding: Instagram Login attempt with ID:", appId);
     setLoading(true);
+    const scope = 'instagram_basic,instagram_manage_comments,instagram_manage_messages,pages_show_list,pages_read_engagement';
+    const redirectUri = window.location.origin + window.location.pathname;
     
-    window.FB.login((response) => {
-      console.log("Instagram Login Response:", response);
-      if (response.authResponse) {
-        const accessToken = response.authResponse.accessToken;
-        handleOAuthTokenDiscovery(accessToken);
-      } else {
-        setLoading(false);
-        console.log("User cancelled login.");
-      }
-    }, {
-      scope: 'instagram_basic,instagram_manage_comments,instagram_manage_messages,pages_show_list,pages_read_engagement'
-    });
+    // This refined URL forces the Instagram-branded login experience (See Screenshot 3 provided)
+    // Using display=page and brand=instagram parameters triggers the modern Business Login UI
+    const loginUrl = `https://www.facebook.com/v25.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}&response_type=token&brand=instagram&display=page&extras={"setup":{"ongoing_grid_access":true}}`;
+    
+    window.location.href = loginUrl;
   };
 
   const handleOAuthTokenDiscovery = async (token) => {
