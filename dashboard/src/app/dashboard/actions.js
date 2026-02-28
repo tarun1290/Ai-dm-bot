@@ -64,14 +64,17 @@ export async function getAccountsFromToken(tokenOrCode, isCode = false) {
   if (!userId) throw new Error("Unauthorized");
 
   const appId = process.env.NEXT_PUBLIC_INSTAGRAM_APP_ID || "2155335488543802";
-  const appSecret = process.env.FB_APP_SECRET; // Ensure this is in your .env
-  const redirectUri = process.env.NEXT_PUBLIC_APP_URL ? `${process.env.NEXT_PUBLIC_APP_URL}/onboarding` : "http://localhost:3000/onboarding";
+  const appSecret = process.env.META_APP_SECRET || process.env.FB_APP_SECRET; 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://querybot-blue.vercel.app";
+  const redirectUri = `${appUrl}/onboarding`;
 
   let token = tokenOrCode;
 
   try {
     if (isCode) {
-      if (!appSecret) throw new Error("Server configuration error: Missing FB_APP_SECRET.");
+      if (!appSecret) {
+        throw new Error("Missing FB_APP_SECRET or META_APP_SECRET. Please add this to your Vercel Environment Variables.");
+      }
       
       // Exchange code for token
       const exchangeRes = await fetch(`https://api.instagram.com/oauth/access_token`, {
