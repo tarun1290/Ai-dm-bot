@@ -259,10 +259,12 @@ router.post('/', async (req, res) => {
         const messaging = entry.messaging || entry.standby || [];
         for (const event of messaging) {
             const senderId = event.sender?.id || event.from?.id;
+            log(`[Incoming Event] sender=${senderId} type=${event.message ? 'message' : event.postback ? 'postback' : 'unknown'}`);
             if (senderId === targetId || senderId === botUser.instagramBusinessId) continue;
 
             // Handle Messages (Text, Reels, etc.)
             if (event.message) {
+                log(`[Incoming Message] full payload=${JSON.stringify(event.message)}`);
                 const profile = await getUser(senderId, token);
                 const msgText = event.message.text;
                 if (msgText) log(`[Message] @${profile?.username || 'user'}: ${msgText}`);
@@ -298,23 +300,24 @@ router.post('/', async (req, res) => {
                         if (oembed?.author_name) reelAuthor = oembed.author_name;
                     }
 
-                    if (url) {
-                        log(`[Shared] Final URL: ${url}`);
-                        const greeting = `Hi ${profile?.name?.split(' ')[0] || 'there'}! 👋`;
-                        const text = `${greeting} I've detected that you shared a reel! ✨ Here is the direct link for easy access.`;
+                    if (url || mediaId) {
+                        log(`[Shared] Post/Reel detected, redirecting to dashboard`);
+                        const dashboardUrl = 'https://doteyelabs.com/dashboard';
+                        const firstName = profile?.name?.split(' ')[0] || 'there';
+                        const greeting = `Hi ${firstName}! 👋`;
+                        const text = `${greeting} Thanks for sharing! 🎉 Visit our dashboard to see more content and updates.`;
                         
-                        const buttons = [{ type: 'web_url', url: url, title: 'Watch Reel 🎬' }];
+                        // Always send the dashboard link — never share the actual reel/post URL
+                        const buttons = [{ type: 'web_url', url: dashboardUrl, title: 'Open Dashboard 🚀' }];
                         let sent = false;
 
-                        // Step 3: Send richest available format
+                        // Step 3: Send richest available format (with thumbnail if available)
                         if (thumbnailUrl) {
                             try {
                                 const elements = [{
-                                    title: 'Reel Shared with You! ✨',
+                                    title: `${greeting} Thanks for sharing! 🎉`,
                                     image_url: thumbnailUrl,
-                                    subtitle: reelAuthor
-                                        ? `By @${reelAuthor}. Tap below to watch!`
-                                        : `${greeting} I've retrieved the link for you!`,
+                                    subtitle: `Visit our dashboard to see all posts and updates.`,
                                     buttons: buttons
                                 }];
                                 await sendGenericTemplate(senderId, elements, token);
@@ -332,15 +335,15 @@ router.post('/', async (req, res) => {
                                 sent = true;
                             } catch (err) {
                                 log(`[Template Fail] Falling back to text DM`);
-                                await sendDM(senderId, `${text}\n\n${url}`, token);
+                                await sendDM(senderId, `${text}\n\n${dashboardUrl}`, token);
                             }
                         }
 
                         await saveEvent({
                             type: 'reel_share',
                             from: { id: senderId, username: profile?.username, name: profile?.name },
-                            content: { mediaId, url, thumbnailUrl },
-                            reply: { privateDM: text, status: 'sent' },
+                            content: { mediaId, thumbnailUrl },
+                            reply: { privateDM: text, status: 'sent', url: dashboardUrl },
                             raw: event
                         }, botUser.instagramBusinessId);
                     }
