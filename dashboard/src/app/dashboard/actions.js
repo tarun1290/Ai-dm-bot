@@ -76,8 +76,11 @@ export async function getAccountsFromToken(tokenOrCode, isCode = false) {
         throw new Error("Missing FB_APP_SECRET or META_APP_SECRET. Please add this to your Vercel Environment Variables.");
       }
       
-      // Exchange code for token
-      const exchangeRes = await fetch(`https://api.instagram.com/oauth/access_token`, {
+      console.log(`[OAuth] Exchanging code for token using App ID: ${appId} and redirect: ${redirectUri}`);
+      
+      // Exchange code for token at the Graph API endpoint (not api.instagram.com)
+      // For Instagram Business Login, the code exchange happens at graph.facebook.com
+      const exchangeRes = await fetch(`https://graph.facebook.com/v25.0/oauth/access_token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -90,10 +93,20 @@ export async function getAccountsFromToken(tokenOrCode, isCode = false) {
       });
       
       const exchangeData = await exchangeRes.json();
-      if (exchangeData.error_message || exchangeData.error) {
-        throw new Error(exchangeData.error_message || "Token exchange failed");
+      
+      if (exchangeData.error) {
+          const errMsg = exchangeData.error.message || exchangeData.error_message || "Token exchange failed";
+          console.error("[OAuth Exchange Error]", exchangeData.error);
+          throw new Error(`OAuth Exchange Error: ${errMsg}`);
       }
+
+      if (!exchangeData.access_token) {
+        console.error("[OAuth Exchange Error] No access_token in response", exchangeData);
+        throw new Error("Token exchange failed: No access token received from Meta.");
+      }
+
       token = exchangeData.access_token;
+      console.log("[OAuth] Successfully obtained access token");
     }
 
     // Now fetch accounts using the token

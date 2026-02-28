@@ -81,6 +81,8 @@ export default function Onboarding() {
     // Official Instagram Business Login OAuth Redirect
     // These specific scopes are required for the Instagram domain flow
     const scopes = [
+        'pages_show_list',
+        'pages_read_engagement',
         'instagram_business_basic',
         'instagram_business_manage_messages',
         'instagram_business_manage_comments',
