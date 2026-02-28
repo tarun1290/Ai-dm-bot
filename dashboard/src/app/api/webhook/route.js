@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/dbConnect';
 import User from '@/models/User';
 import Event from '@/models/Event';
+import ProcessedMid from '@/models/ProcessedMid';
 
 const BASE_URL = 'https://graph.facebook.com/v21.0';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
@@ -281,15 +282,20 @@ export async function POST(request) {
             if (event.message) {
                 const mid = event.message.mid; // Unique message ID from Meta
 
-                // ── Deduplication: skip if we've already processed this message ──
+                // ── Atomic dedup via unique index: only ONE Vercel instance wins ──
                 if (mid) {
                     try {
-                        const already = await Event.findOne({ 'raw.message.mid': mid });
-                        if (already) {
-                            console.log(`[Skip] Duplicate message id=${mid}`);
+                        await ProcessedMid.create({ mid });
+                        // Insert succeeded → this instance processes the message
+                    } catch (err) {
+                        if (err.code === 11000) {
+                            // Duplicate key → another instance already handled it
+                            console.log(`[Skip] Duplicate mid=${mid} — already processed`);
                             continue;
                         }
-                    } catch {}
+                        // Unexpected DB error — still proceed to avoid dropping the message
+                        console.error('[Dedup Error]', err.message);
+                    }
                 }
 
                 console.log(`[Incoming Message] sender=${senderId} mid=${mid}`);
