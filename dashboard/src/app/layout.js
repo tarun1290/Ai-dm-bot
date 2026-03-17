@@ -1,7 +1,6 @@
 import { Outfit } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
-import Providers from "@/components/Providers";
 
 const outfit = Outfit({
   variable: "--font-outfit",
@@ -17,10 +16,8 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body className={`${outfit.variable} antialiased`} suppressHydrationWarning>
-        <Providers>
-          {children}
-          <Toaster richColors position="top-right" />
-        </Providers>
+        {children}
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   );

@@ -337,7 +337,7 @@ export async function POST(request) {
 
                     if (url || mediaId) {
                         console.log('[Shared] Post/Reel detected — redirecting to dashboard');
-                        const dashboardUrl = 'https://doteyelabs.com/dashboard';
+                        const dashboardUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://aidmbot.vercel.app') + '/dashboard';
                         const firstName = profile?.name?.split(' ')[0] || 'there';
                         const greeting = `Hi ${firstName}! 👋`;
                         const text = `${greeting} Thanks for sharing! 🎉 Visit our dashboard to see more content and updates.`;
