@@ -34,22 +34,26 @@ export default function Onboarding() {
   useEffect(() => {
     setIsMounted(true);
 
-    // Load Facebook JS SDK
-    window.fbAsyncInit = function () {
-      window.FB.init({
-        appId: fbAppId,
-        cookie: true,
-        xfbml: false,
-        version: 'v25.0',
-      });
+    const initFB = () => {
+      if (window.FB) {
+        window.FB.init({ appId: fbAppId, cookie: true, xfbml: false, version: 'v25.0' });
+      }
     };
-    if (!document.getElementById('facebook-jssdk')) {
-      const script = document.createElement('script');
-      script.id = 'facebook-jssdk';
-      script.src = 'https://connect.facebook.net/en_US/sdk.js';
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
+
+    // If SDK already loaded (e.g. hot reload / re-mount), init immediately
+    if (window.FB) {
+      initFB();
+    } else {
+      // Set fbAsyncInit before injecting script so SDK calls it on load
+      window.fbAsyncInit = initFB;
+      if (!document.getElementById('facebook-jssdk')) {
+        const script = document.createElement('script');
+        script.id = 'facebook-jssdk';
+        script.src = 'https://connect.facebook.net/en_US/sdk.js';
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
     }
 
     // Fallback: catch code in URL (redirect-based flow)
@@ -96,10 +100,31 @@ export default function Onboarding() {
       return;
     }
 
+    // Ensure FB is initialised (handles cases where fbAsyncInit may have been missed)
+    try {
+      window.FB.init({ appId: fbAppId, cookie: true, xfbml: false, version: 'v25.0' });
+    } catch { /* already initialised — safe to ignore */ }
+
     setLoading(true);
+
+    // Safety net: if the FB popup is blocked the callback never fires.
+    // After 12s, stop the spinner and guide the user.
+    let responded = false;
+    const popupTimeout = setTimeout(() => {
+      if (!responded) {
+        setLoading(false);
+        setOauthError(
+          'The login popup may have been blocked by your browser. ' +
+          'Look for a blocked-popup icon in your address bar, allow popups for this site, then try again.'
+        );
+      }
+    }, 12000);
 
     window.FB.login(
       function (response) {
+        responded = true;
+        clearTimeout(popupTimeout);
+
         if (response.authResponse) {
           const token = response.authResponse.accessToken;
           handleOAuthTokenDiscovery(token, false);
