@@ -24,17 +24,22 @@ export async function adminLogin(formData) {
 
 export async function deleteUser(formData) {
   const userId = formData.get("userId");
-  if (!userId) redirect("/admin/dashboard");
+  if (!userId) return { error: "Missing userId" };
 
-  await dbConnect();
+  try {
+    await dbConnect();
 
-  const user = await User.findOne({ userId });
-  if (user?.instagramBusinessId) {
-    await Event.deleteMany({ targetBusinessId: user.instagramBusinessId });
+    const user = await User.findOne({ userId });
+    if (user?.instagramBusinessId) {
+      await Event.deleteMany({ targetBusinessId: user.instagramBusinessId });
+    }
+    await User.deleteOne({ userId });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[deleteUser]", err.message);
+    return { error: err.message };
   }
-  await User.deleteOne({ userId });
-
-  redirect("/admin/dashboard");
 }
 
 export async function adminLogout() {
