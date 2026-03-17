@@ -70,7 +70,8 @@ export async function getDashboardStats() {
 }
 
 export async function getAccountsFromToken(tokenOrCode, isCode = false) {
-  const appId = process.env.NEXT_PUBLIC_INSTAGRAM_APP_ID;
+  // Use Facebook App ID (JS SDK / dialog/oauth flow)
+  const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || process.env.NEXT_PUBLIC_INSTAGRAM_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
   const redirectUri = `${appUrl}/onboarding`;
@@ -96,6 +97,13 @@ export async function getAccountsFromToken(tokenOrCode, isCode = false) {
       const longTokenData = await longTokenRes.json();
 
       token = longTokenData.error ? shortLivedToken : longTokenData.access_token;
+    } else if (appSecret) {
+      // JS SDK short-lived token — exchange for long-lived so page tokens don't expire
+      try {
+        const longTokenRes = await fetch(`https://graph.facebook.com/v25.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${token}`);
+        const longTokenData = await longTokenRes.json();
+        if (!longTokenData.error) token = longTokenData.access_token;
+      } catch { /* keep short-lived token on failure */ }
     }
 
     const res = await fetch(`https://graph.facebook.com/v25.0/me/accounts?fields=name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${token}`);

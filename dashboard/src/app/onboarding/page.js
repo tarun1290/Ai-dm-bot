@@ -27,20 +27,35 @@ export default function Onboarding() {
   const [isMounted, setIsMounted] = useState(false);
   const [oauthError, setOauthError] = useState('');
 
-  const appId = process.env.NEXT_PUBLIC_INSTAGRAM_APP_ID;
+  const fbAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID;
 
 
 
   useEffect(() => {
     setIsMounted(true);
 
-    // Catch Authorization Code from URL Query (Official Instagram Business Login flow)
+    // Load Facebook JS SDK
+    window.fbAsyncInit = function () {
+      window.FB.init({
+        appId: fbAppId,
+        cookie: true,
+        xfbml: false,
+        version: 'v25.0',
+      });
+    };
+    if (!document.getElementById('facebook-jssdk')) {
+      const script = document.createElement('script');
+      script.id = 'facebook-jssdk';
+      script.src = 'https://connect.facebook.net/en_US/sdk.js';
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
+
+    // Fallback: catch code in URL (redirect-based flow)
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
-
     if (code) {
-      console.log("Onboarding: Code detected, starting discovery...");
-      // Clear query for cleaner URL
       window.history.replaceState(null, null, window.location.pathname);
       handleOAuthTokenDiscovery(code, true);
     }
@@ -75,23 +90,30 @@ export default function Onboarding() {
 
   const handleInstagramLogin = () => {
     setOauthError('');
+
+    if (!window.FB) {
+      setOauthError('Facebook SDK is still loading. Please wait a moment and try again.');
+      return;
+    }
+
     setLoading(true);
 
-    // Use Facebook dialog/oauth — required to get pages_show_list + pages_read_engagement
-    // (Instagram-only endpoint blocks Facebook-scoped permissions)
-    const scopes = [
-        'instagram_business_basic',
-        'instagram_business_manage_messages',
-        'instagram_business_manage_comments',
-        'instagram_business_content_publish',
-        'pages_show_list',
-        'pages_read_engagement'
-    ].join(',');
-
-    const redirectUri = `${window.location.origin}/onboarding`;
-    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes)}&response_type=code`;
-
-    window.location.href = authUrl;
+    window.FB.login(
+      function (response) {
+        if (response.authResponse) {
+          const token = response.authResponse.accessToken;
+          handleOAuthTokenDiscovery(token, false);
+        } else {
+          setLoading(false);
+          setOauthError('Login was cancelled or permissions were not granted. Please try again and allow all requested permissions.');
+        }
+      },
+      {
+        scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish,pages_show_list,pages_read_engagement',
+        return_scopes: true,
+        auth_type: 'rerequest',
+      }
+    );
   };
 
   const handleOAuthTokenDiscovery = async (tokenOrCode, isCode = false) => {
@@ -245,11 +267,8 @@ export default function Onboarding() {
          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-50/50 rounded-full blur-[120px]"></div>
       </div>
 
-      <div className="absolute bottom-12 flex flex-col items-center space-y-4">
-         <p className="text-[10px] font-black text-pink-500 bg-pink-50 px-3 py-1 rounded-full border border-pink-100 uppercase tracking-tighter">
-            INSTAGRAM API VERIFIED: {appId}
-         </p>
-         <p className="text-[11px] font-bold text-slate-300 uppercase tracking-[0.2em]">Secure API Integration</p>
+      <div className="absolute bottom-12 flex flex-col items-center space-y-2">
+         <p className="text-[11px] font-bold text-slate-300 uppercase tracking-[0.2em]">Secure Facebook SDK Integration</p>
       </div>
 
       {subStep === 0 && (
