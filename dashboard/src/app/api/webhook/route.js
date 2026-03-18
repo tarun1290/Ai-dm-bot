@@ -57,7 +57,8 @@ async function sendDM(recipientId, text, token) {
     } catch (e) { console.error('[DM Error]', e.message); }
 }
 
-async function sendButtonMessage(recipientId, text, buttons, token) {
+// Quick replies — Instagram-supported interactive message
+async function sendQuickReply(recipientId, text, quickReplies, token) {
     const url = new URL(`${BASE_URL}/me/messages`);
     url.searchParams.set('access_token', token);
     const res = await fetch(url.toString(), {
@@ -66,15 +67,14 @@ async function sendButtonMessage(recipientId, text, buttons, token) {
         body: JSON.stringify({
             recipient: { id: recipientId },
             message: {
-                attachment: {
-                    type: 'template',
-                    payload: { template_type: 'button', text, buttons }
-                }
+                text,
+                quick_replies: quickReplies.slice(0, 13) // Instagram max 13
             }
         })
     });
-    if (!res.ok) throw new Error(`Button message failed: ${res.status}`);
-    return res.json();
+    const data = await res.json();
+    if (data.error) throw new Error(`Quick reply failed: ${data.error.message}`);
+    return data;
 }
 
 async function sendGenericTemplate(recipientId, elements, token) {
@@ -161,19 +161,29 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
             try { await replyToComment(commentId, publicReply, token); } catch (e) { console.error('[Public Fail]', e.message); }
         }
 
-        // Private DM — always send as a button template
-        const buttons = automation.linkUrl
-            ? [{ type: 'web_url', url: automation.linkUrl, title: automation.buttonText || 'Learn More 🔗' }]
-            : [{ type: 'postback', title: 'Get Started 🚀', payload: 'GET_STARTED' }];
+        // Private DM — use quick replies (Instagram-supported interactive format)
+        // If a link is configured, include it in the text + a "Visit Link" quick reply chip
+        const dmText = automation.linkUrl
+            ? `${privateDM}\n\n🔗 ${automation.linkUrl}`
+            : privateDM;
+
+        const quickReplies = automation.linkUrl
+            ? [
+                { content_type: 'text', title: automation.buttonText || 'Visit Link 🔗', payload: 'VISIT_LINK' },
+                { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
+              ]
+            : [
+                { content_type: 'text', title: 'Tell me more 💬', payload: 'MORE_INFO' },
+                { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
+              ];
 
         try {
-            await sendButtonMessage(senderId, privateDM, buttons, token);
+            await sendQuickReply(senderId, dmText, quickReplies, token);
             replyStatus = 'sent';
         } catch {
-            // Fallback: plain text DM if template fails
+            // Fallback to plain text if quick reply fails
             try {
-                const text = automation.linkUrl ? `${privateDM}\n\n${automation.linkUrl}` : privateDM;
-                await sendDM(senderId, text, token);
+                await sendDM(senderId, dmText, token);
                 replyStatus = 'fallback';
             } catch (e) {
                 console.error('[DM Fallback Fail]', e.message);
@@ -355,21 +365,21 @@ export async function POST(request) {
                     };
 
                     if (isSharedContent) {
-                        // Shared reel/post — send auto-reply with thumbnail card
+                        // Shared reel/post — send auto-reply
                         console.log('[Shared] Post/Reel detected — sending reply');
-                        const dashboardUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://aidmbot.vercel.app') + '/dashboard';
+                        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://aidmbot.vercel.app';
                         const firstName = profile?.name?.split(' ')[0] || 'there';
-                        const replyText = `Hi ${firstName}! 👋 Thanks for sharing! 🎉 Visit our dashboard to see more content and updates.`;
-                        const buttons = [{ type: 'web_url', url: dashboardUrl, title: 'Open Dashboard 🚀' }];
+                        const replyText = `Hi ${firstName}! 👋 Thanks for sharing! 🎉\n\n🔗 ${appUrl}`;
                         let templateSent = false;
 
+                        // Generic template (image card) — works on Instagram when thumbnail available
                         if (thumbnailUrl) {
                             try {
                                 await sendGenericTemplate(senderId, [{
-                                    title: `Hi ${firstName}! 👋 Thanks for sharing! 🎉`,
+                                    title: `Hi ${firstName}! 👋 Thanks for sharing!`,
                                     image_url: thumbnailUrl,
-                                    subtitle: 'Visit our dashboard to see all posts and updates.',
-                                    buttons
+                                    subtitle: 'Check out more content and updates.',
+                                    buttons: [{ type: 'web_url', url: appUrl, title: 'Visit Us 🚀' }]
                                 }], token);
                                 console.log(`[Generic Sent] -> ${senderId}`);
                                 templateSent = true;
@@ -377,15 +387,19 @@ export async function POST(request) {
                             } catch (e) { console.error('[Template Fail]', e.message); }
                         }
 
+                        // Quick reply fallback (no image needed)
                         if (!templateSent) {
                             try {
-                                await sendButtonMessage(senderId, replyText, buttons, token);
-                                console.log(`[Button Sent] -> ${senderId}`);
+                                await sendQuickReply(senderId, replyText, [
+                                    { content_type: 'text', title: 'Visit Us 🚀', payload: 'VISIT_SITE' },
+                                    { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
+                                ], token);
+                                console.log(`[QuickReply Sent] -> ${senderId}`);
                                 templateSent = true;
                                 replySentForThisMessage = true;
                             } catch {
                                 try {
-                                    await sendDM(senderId, `${replyText}\n\n${dashboardUrl}`, token);
+                                    await sendDM(senderId, replyText, token);
                                     replySentForThisMessage = true;
                                 } catch (e) { console.error('[DM Fallback Fail]', e.message); }
                             }
