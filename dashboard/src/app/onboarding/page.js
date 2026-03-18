@@ -24,7 +24,8 @@ export default function Onboarding() {
   const [isMounted, setIsMounted] = useState(false);
   const [oauthError, setOauthError] = useState('');
 
-  const fbAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "904079505867470";
+  const fbAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "777188381785658";
+  const fbLoginConfigId = process.env.NEXT_PUBLIC_FACEBOOK_LOGIN_CONFIG_ID || "904079505867470";
 
 
 
@@ -99,7 +100,8 @@ export default function Onboarding() {
     ].join(',');
 
     const redirectUri = encodeURIComponent(`${window.location.origin}/onboarding`);
-    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${fbAppId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code`;
+    // config_id references the Facebook Login for Business configuration (includes all required scopes)
+    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${fbAppId}&config_id=${fbLoginConfigId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code`;
 
     window.location.href = authUrl;
   };
