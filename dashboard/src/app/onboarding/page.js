@@ -106,7 +106,8 @@ export default function Onboarding() {
           if (res.totalPages > 0) {
             setOauthError(`Found ${res.totalPages} page(s) but none have an Instagram Business account linked. Connect your IG account to a Facebook Page first.`);
           } else {
-            setOauthError("No accounts found. Make sure you granted all requested permissions.");
+            const hint = res.debugReason ? ` (${res.debugReason})` : '';
+            setOauthError(`No accounts found. Make sure your Instagram account is a Business or Creator account and is linked to a Facebook Page.${hint}`);
           }
         }
       } else {

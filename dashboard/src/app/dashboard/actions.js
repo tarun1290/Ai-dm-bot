@@ -116,23 +116,49 @@ export async function getAccountsFromToken(tokenOrCode, isCode = false) {
       } catch { /* keep short-lived token on failure */ }
     }
 
-    const res = await fetch(`https://graph.facebook.com/v25.0/me/accounts?fields=name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${token}`);
-    const data = await res.json();
+    // ── Approach 1: Facebook User Token + Pages (requires pages_show_list) ──
+    const pagesRes = await fetch(`https://graph.facebook.com/v25.0/me/accounts?fields=name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${token}`);
+    const pagesData = await pagesRes.json();
 
-    if (data.error) throw new Error(data.error.message);
+    if (!pagesData.error && pagesData.data?.length > 0) {
+      const accounts = pagesData.data
+        .filter(p => !!p.instagram_business_account)
+        .map(p => ({
+          pageId: p.id,
+          pageToken: p.access_token,
+          igId: p.instagram_business_account.id,
+          username: p.instagram_business_account.username,
+          name: p.instagram_business_account.name,
+          profilePic: p.instagram_business_account.profile_picture_url,
+          isIgToken: false,
+        }));
+      return { success: true, accounts, totalPages: pagesData.data.length };
+    }
 
-    const accounts = data.data
-      ?.filter(p => !!p.instagram_business_account)
-      .map(p => ({
-        pageId: p.id,
-        pageToken: p.access_token,
-        igId: p.instagram_business_account.id,
-        username: p.instagram_business_account.username,
-        name: p.instagram_business_account.name,
-        profilePic: p.instagram_business_account.profile_picture_url
-      }));
+    // ── Approach 2: Instagram User Token (Instagram Login for Business config_id) ──
+    // When pages_show_list is absent, the token is scoped to Instagram directly.
+    const igRes = await fetch(`https://graph.facebook.com/v25.0/me?fields=id,username,name,profile_picture_url&access_token=${token}`);
+    const igData = await igRes.json();
 
-    return { success: true, accounts, totalPages: data.data?.length || 0 };
+    if (!igData.error && igData.username) {
+      return {
+        success: true,
+        accounts: [{
+          pageId: null,
+          pageToken: token,
+          igId: igData.id,
+          username: igData.username,
+          name: igData.name,
+          profilePic: igData.profile_picture_url,
+          isIgToken: true,
+        }],
+        totalPages: 1,
+      };
+    }
+
+    // Nothing found — surface the most useful error message
+    const reason = pagesData.error?.message || igData.error?.message || "No Instagram account found.";
+    return { success: true, accounts: [], totalPages: 0, debugReason: reason };
   } catch (err) {
     return { success: false, error: err.message };
   }
@@ -149,15 +175,19 @@ export async function saveDiscoveredAccount(details) {
   }
 
   try {
-    const subRes = await fetch(`https://graph.facebook.com/v25.0/${details.pageId}/subscribed_apps?access_token=${details.pageToken}`, {
-      method: "POST"
-    });
+    // Instagram User Token → subscribe via IG user endpoint
+    // Facebook Page Token  → subscribe via Page endpoint
+    const subEndpoint = details.isIgToken
+      ? `https://graph.facebook.com/v25.0/${details.igId}/subscribed_apps?access_token=${details.pageToken}`
+      : `https://graph.facebook.com/v25.0/${details.pageId}/subscribed_apps?access_token=${details.pageToken}`;
+
+    const subRes = await fetch(subEndpoint, { method: "POST" });
     const subData = await subRes.json();
     if (!subData.success) {
-      console.warn("[Subscription] Page subscription warning:", subData.error);
+      console.warn("[Subscription] Subscription warning:", subData.error);
     }
   } catch (err) {
-    console.error("[Subscription] Failed to subscribe Page:", err.message);
+    console.error("[Subscription] Failed to subscribe:", err.message);
   }
 
   await User.findOneAndUpdate(
