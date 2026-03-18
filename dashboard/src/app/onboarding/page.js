@@ -88,20 +88,9 @@ export default function Onboarding() {
       return;
     }
 
-    // Use Facebook OAuth redirect — no popup-blocking issues, works on all browsers/devices.
-    // The returned `code` is caught by the useEffect URL-params check and processed server-side.
-    const scope = [
-      'instagram_business_basic',
-      'instagram_business_manage_messages',
-      'instagram_business_manage_comments',
-      'instagram_business_content_publish',
-      'pages_show_list',
-      'pages_read_engagement',
-    ].join(',');
-
+    // config_id carries all required scopes — do NOT pass scope= separately or Facebook rejects it.
     const redirectUri = encodeURIComponent(`${window.location.origin}/onboarding`);
-    // config_id references the Facebook Login for Business configuration (includes all required scopes)
-    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${fbAppId}&config_id=${fbLoginConfigId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code`;
+    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${fbAppId}&config_id=${fbLoginConfigId}&redirect_uri=${redirectUri}&response_type=code`;
 
     window.location.href = authUrl;
   };
