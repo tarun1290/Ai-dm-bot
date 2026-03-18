@@ -156,26 +156,28 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
     const privateDM = automation.dmContent || 'Hi there! 👋 Thanks for reaching out.';
 
     try {
+        // Public comment reply
         if (automation.replyEnabled) {
             try { await replyToComment(commentId, publicReply, token); } catch (e) { console.error('[Public Fail]', e.message); }
         }
 
-        if (automation.buttonText && automation.linkUrl) {
-            const buttons = [{ type: 'web_url', url: automation.linkUrl, title: automation.buttonText }];
+        // Private DM — always send as a button template
+        const buttons = automation.linkUrl
+            ? [{ type: 'web_url', url: automation.linkUrl, title: automation.buttonText || 'Learn More 🔗' }]
+            : [{ type: 'postback', title: 'Get Started 🚀', payload: 'GET_STARTED' }];
+
+        try {
+            await sendButtonMessage(senderId, privateDM, buttons, token);
+            replyStatus = 'sent';
+        } catch {
+            // Fallback: plain text DM if template fails
             try {
-                await sendButtonMessage(senderId, privateDM, buttons, token);
-                replyStatus = 'sent';
-            } catch {
-                await sendDM(senderId, `${privateDM}\n\n${automation.linkUrl}`, token);
+                const text = automation.linkUrl ? `${privateDM}\n\n${automation.linkUrl}` : privateDM;
+                await sendDM(senderId, text, token);
                 replyStatus = 'fallback';
-            }
-        } else {
-            const dm = await sendPrivateReply(commentId, privateDM, token);
-            if (!dm) {
-                await sendDM(senderId, privateDM, token);
-                replyStatus = 'fallback';
-            } else {
-                replyStatus = 'sent';
+            } catch (e) {
+                console.error('[DM Fallback Fail]', e.message);
+                replyStatus = 'failed';
             }
         }
     } catch (err) {

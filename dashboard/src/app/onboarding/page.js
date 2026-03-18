@@ -55,9 +55,10 @@ export default function Onboarding() {
 
   useEffect(() => {
     if (subStep === 3) {
+      // Show success briefly then redirect immediately
       const timer = setTimeout(() => {
         router.push("/dashboard");
-      }, 3000);
+      }, 1500);
       return () => clearTimeout(timer);
     }
   }, [subStep, router]);
@@ -101,13 +102,17 @@ export default function Onboarding() {
     try {
       const res = await getAccountsFromToken(tokenOrCode, isCode);
       if (res.success) {
-        setDiscoveredAccounts(res.accounts);
-        if (res.accounts.length === 0) {
+        if (res.accounts.length === 1) {
+          // Only one account — auto-select and go straight to dashboard
+          await handleSelectAccount(res.accounts[0]);
+        } else if (res.accounts.length > 1) {
+          setDiscoveredAccounts(res.accounts);
+        } else {
           if (res.totalPages > 0) {
             setOauthError(`Found ${res.totalPages} page(s) but none have an Instagram Business account linked. Connect your IG account to a Facebook Page first.`);
           } else {
             const hint = res.debugReason ? ` (${res.debugReason})` : '';
-            setOauthError(`No accounts found. Make sure your Instagram account is a Business or Creator account and is linked to a Facebook Page.${hint}`);
+            setOauthError(`No accounts found. Make sure your Instagram account is a Business or Creator account.${hint}`);
           }
         }
       } else {
