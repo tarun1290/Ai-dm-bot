@@ -2,19 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Bot,
   Instagram,
   ArrowRight,
   Zap,
   CheckCircle2,
   ChevronDown,
-  Lock,
   ExternalLink,
   AlertCircle,
   ShieldCheck as ShieldText
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
 import { getAccountsFromToken, saveDiscoveredAccount } from "../dashboard/actions";
 
 export default function Onboarding() {
@@ -34,29 +31,7 @@ export default function Onboarding() {
   useEffect(() => {
     setIsMounted(true);
 
-    const initFB = () => {
-      if (window.FB) {
-        window.FB.init({ appId: fbAppId, cookie: true, xfbml: false, version: 'v25.0' });
-      }
-    };
-
-    // If SDK already loaded (e.g. hot reload / re-mount), init immediately
-    if (window.FB) {
-      initFB();
-    } else {
-      // Set fbAsyncInit before injecting script so SDK calls it on load
-      window.fbAsyncInit = initFB;
-      if (!document.getElementById('facebook-jssdk')) {
-        const script = document.createElement('script');
-        script.id = 'facebook-jssdk';
-        script.src = 'https://connect.facebook.net/en_US/sdk.js';
-        script.async = true;
-        script.defer = true;
-        document.head.appendChild(script);
-      }
-    }
-
-    // Fallback: catch code in URL (redirect-based flow)
+    // Catch the `code` returned by Facebook OAuth redirect
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
     if (code) {
@@ -95,50 +70,26 @@ export default function Onboarding() {
   const handleInstagramLogin = () => {
     setOauthError('');
 
-    if (!window.FB) {
-      setOauthError('Facebook SDK is still loading. Please wait a moment and try again.');
+    if (!fbAppId) {
+      setOauthError('App configuration error: Facebook App ID is missing.');
       return;
     }
 
-    // Ensure FB is initialised (handles cases where fbAsyncInit may have been missed)
-    try {
-      window.FB.init({ appId: fbAppId, cookie: true, xfbml: false, version: 'v25.0' });
-    } catch { /* already initialised — safe to ignore */ }
+    // Use Facebook OAuth redirect — no popup-blocking issues, works on all browsers/devices.
+    // The returned `code` is caught by the useEffect URL-params check and processed server-side.
+    const scope = [
+      'instagram_business_basic',
+      'instagram_business_manage_messages',
+      'instagram_business_manage_comments',
+      'instagram_business_content_publish',
+      'pages_show_list',
+      'pages_read_engagement',
+    ].join(',');
 
-    setLoading(true);
+    const redirectUri = encodeURIComponent(`${window.location.origin}/onboarding`);
+    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${fbAppId}&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scope)}&response_type=code&auth_type=rerequest`;
 
-    // Safety net: if the FB popup is blocked the callback never fires.
-    // After 12s, stop the spinner and guide the user.
-    let responded = false;
-    const popupTimeout = setTimeout(() => {
-      if (!responded) {
-        setLoading(false);
-        setOauthError(
-          'The login popup may have been blocked by your browser. ' +
-          'Look for a blocked-popup icon in your address bar, allow popups for this site, then try again.'
-        );
-      }
-    }, 12000);
-
-    window.FB.login(
-      function (response) {
-        responded = true;
-        clearTimeout(popupTimeout);
-
-        if (response.authResponse) {
-          const token = response.authResponse.accessToken;
-          handleOAuthTokenDiscovery(token, false);
-        } else {
-          setLoading(false);
-          setOauthError('Login was cancelled or permissions were not granted. Please try again and allow all requested permissions.');
-        }
-      },
-      {
-        scope: 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish,pages_show_list,pages_read_engagement',
-        return_scopes: true,
-        auth_type: 'rerequest',
-      }
-    );
+    window.location.href = authUrl;
   };
 
   const handleOAuthTokenDiscovery = async (tokenOrCode, isCode = false) => {

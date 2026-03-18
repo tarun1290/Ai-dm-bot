@@ -15,9 +15,7 @@ export default function DeleteUserButton({ userId }) {
     setLoading(true);
     setError(null);
     try {
-      const fd = new FormData();
-      fd.append("userId", userId);
-      const result = await deleteUser(fd);
+      const result = await deleteUser(userId);
       if (result?.success) {
         router.refresh();
       } else {

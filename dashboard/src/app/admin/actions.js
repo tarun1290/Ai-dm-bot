@@ -22,8 +22,7 @@ export async function adminLogin(formData) {
   redirect("/admin?error=1");
 }
 
-export async function deleteUser(formData) {
-  const userId = formData.get("userId");
+export async function deleteUser(userId) {
   if (!userId) return { error: "Missing userId" };
 
   try {
