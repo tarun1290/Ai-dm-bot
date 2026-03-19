@@ -43,10 +43,16 @@ async function getUser(id, token) {
     } catch { return null; }
 }
 
-async function sendDM(recipientId, text, token) {
+// All messaging functions use /{igBusinessId}/messages — NOT /me/messages
+// because the token from config_id flow is a Facebook User Token, where
+// /me = Facebook user (not Instagram account). Using the explicit IG Business ID
+// ensures messages are sent from the correct Instagram account.
+
+async function sendDM(recipientId, text, token, igBusinessId) {
     if (!recipientId || !text) return;
     try {
-        const url = new URL(`${BASE_URL}/me/messages`);
+        const senderId = igBusinessId || 'me';
+        const url = new URL(`${BASE_URL}/${senderId}/messages`);
         url.searchParams.set('access_token', token);
         await fetch(url.toString(), {
             method: 'POST',
@@ -58,8 +64,9 @@ async function sendDM(recipientId, text, token) {
 }
 
 // Quick replies — Instagram-supported interactive message
-async function sendQuickReply(recipientId, text, quickReplies, token) {
-    const url = new URL(`${BASE_URL}/me/messages`);
+async function sendQuickReply(recipientId, text, quickReplies, token, igBusinessId) {
+    const senderId = igBusinessId || 'me';
+    const url = new URL(`${BASE_URL}/${senderId}/messages`);
     url.searchParams.set('access_token', token);
     const res = await fetch(url.toString(), {
         method: 'POST',
@@ -77,8 +84,9 @@ async function sendQuickReply(recipientId, text, quickReplies, token) {
     return data;
 }
 
-async function sendGenericTemplate(recipientId, elements, token) {
-    const url = new URL(`${BASE_URL}/me/messages`);
+async function sendGenericTemplate(recipientId, elements, token, igBusinessId) {
+    const senderId = igBusinessId || 'me';
+    const url = new URL(`${BASE_URL}/${senderId}/messages`);
     url.searchParams.set('access_token', token);
     const res = await fetch(url.toString(), {
         method: 'POST',
@@ -125,7 +133,7 @@ async function saveEvent(data) {
     }
 }
 
-async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation) {
+async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation, igBusinessId) {
     if (!commentId) return;
 
     // Dedup check
@@ -178,12 +186,12 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
               ];
 
         try {
-            await sendQuickReply(senderId, dmText, quickReplies, token);
+            await sendQuickReply(senderId, dmText, quickReplies, token, igBusinessId);
             replyStatus = 'sent';
         } catch {
             // Fallback to plain text if quick reply fails
             try {
-                await sendDM(senderId, dmText, token);
+                await sendDM(senderId, dmText, token, igBusinessId);
                 replyStatus = 'fallback';
             } catch (e) {
                 console.error('[DM Fallback Fail]', e.message);
@@ -258,13 +266,14 @@ export async function POST(request) {
         }
 
         const token = botUser.instagramAccessToken;
+        const igBusinessId = botUser.instagramBusinessId;
 
         // 1. Comments & Mentions (Feed)
         const changes = entry.changes || [];
         for (const change of changes) {
             const { field, value } = change;
             const fromId = value.from?.id || value.sender_id;
-            if (fromId === targetId || fromId === botUser.instagramBusinessId) continue;
+            if (fromId === targetId || fromId === igBusinessId) continue;
 
             if (field === 'feed' || field === 'comments') {
                 if (value.item === 'comment' || field === 'comments') {
@@ -272,7 +281,7 @@ export async function POST(request) {
                     console.log(`[Comment] @${value.from?.username}: ${value.message || value.text}`);
                     await handleAutoReply(cid, fromId, 'comment', {
                         id: fromId, username: value.from?.username, text: value.message || value.text
-                    }, value, token, { ...botUser.automation, instagramBusinessId: botUser.instagramBusinessId });
+                    }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, igBusinessId);
                 }
             }
 
@@ -280,7 +289,7 @@ export async function POST(request) {
                 const cid = value.comment_id || value.id;
                 await handleAutoReply(cid, fromId, 'mention', {
                     id: fromId, username: value.from?.username, text: value.text
-                }, value, token, { ...botUser.automation, instagramBusinessId: botUser.instagramBusinessId });
+                }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, igBusinessId);
             }
         }
 
@@ -380,7 +389,7 @@ export async function POST(request) {
                                     image_url: thumbnailUrl,
                                     subtitle: 'Check out more content and updates.',
                                     buttons: [{ type: 'web_url', url: appUrl, title: 'Visit Us 🚀' }]
-                                }], token);
+                                }], token, igBusinessId);
                                 console.log(`[Generic Sent] -> ${senderId}`);
                                 templateSent = true;
                                 replySentForThisMessage = true;
@@ -393,13 +402,13 @@ export async function POST(request) {
                                 await sendQuickReply(senderId, replyText, [
                                     { content_type: 'text', title: 'Visit Us 🚀', payload: 'VISIT_SITE' },
                                     { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
-                                ], token);
+                                ], token, igBusinessId);
                                 console.log(`[QuickReply Sent] -> ${senderId}`);
                                 templateSent = true;
                                 replySentForThisMessage = true;
                             } catch {
                                 try {
-                                    await sendDM(senderId, replyText, token);
+                                    await sendDM(senderId, replyText, token, igBusinessId);
                                     replySentForThisMessage = true;
                                 } catch (e) { console.error('[DM Fallback Fail]', e.message); }
                             }
@@ -454,7 +463,7 @@ export async function POST(request) {
                     replyText = "Our support team has been notified. 💬 We'll get back to you shortly!";
                 }
 
-                await sendDM(senderId, replyText, token);
+                await sendDM(senderId, replyText, token, igBusinessId);
                 await saveEvent({
                     type: 'postback',
                     targetBusinessId: botUser.instagramBusinessId,
