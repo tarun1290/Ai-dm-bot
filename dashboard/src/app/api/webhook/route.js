@@ -1,18 +1,22 @@
 import { NextResponse } from 'next/server';
+import { createHmac } from 'crypto';
 import dbConnect from '@/lib/dbConnect';
 import User from '@/models/User';
 import Event from '@/models/Event';
 import ProcessedMid from '@/models/ProcessedMid';
 
-const BASE_URL = 'https://graph.facebook.com/v25.0';
+// Business Login for Instagram uses graph.instagram.com — NOT graph.facebook.com
+// instagram_oembed is the only call that stays on graph.facebook.com
+const IG_BASE = 'https://graph.instagram.com/v25.0';
+const FB_BASE = 'https://graph.facebook.com/v25.0';
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
-// ─── Graph API Helpers (native fetch, no axios needed) ───────────────────────
+// ─── Graph API Helpers ────────────────────────────────────────────────────────
 
 async function getMedia(id, token) {
     if (!id) return null;
     try {
-        const url = new URL(`${BASE_URL}/${id}`);
+        const url = new URL(`${IG_BASE}/${id}`);
         url.searchParams.set('fields', 'id,media_type,permalink,media_url,thumbnail_url,shortcode,timestamp,username');
         url.searchParams.set('access_token', token);
         const res = await fetch(url.toString());
@@ -23,7 +27,8 @@ async function getMedia(id, token) {
 async function getOEmbed(mediaUrl, token) {
     if (!mediaUrl) return null;
     try {
-        const url = new URL(`${BASE_URL}/instagram_oembed`);
+        // instagram_oembed lives on graph.facebook.com
+        const url = new URL(`${FB_BASE}/instagram_oembed`);
         url.searchParams.set('url', mediaUrl);
         url.searchParams.set('fields', 'thumbnail_url,title,author_name');
         url.searchParams.set('access_token', token);
@@ -35,7 +40,7 @@ async function getOEmbed(mediaUrl, token) {
 async function getUser(id, token) {
     if (!id) return null;
     try {
-        const url = new URL(`${BASE_URL}/${id}`);
+        const url = new URL(`${IG_BASE}/${id}`);
         url.searchParams.set('fields', 'name,username,profile_picture_url');
         url.searchParams.set('access_token', token);
         const res = await fetch(url.toString());
@@ -43,40 +48,34 @@ async function getUser(id, token) {
     } catch { return null; }
 }
 
-// All messaging functions use /{igBusinessId}/messages — NOT /me/messages
-// because the token from config_id flow is a Facebook User Token, where
-// /me = Facebook user (not Instagram account). Using the explicit IG Business ID
-// ensures messages are sent from the correct Instagram account.
-
-async function sendDM(recipientId, text, token, igBusinessId) {
+// With Instagram User Tokens (Business Login), /me resolves to the Instagram
+// account — so /me/messages sends from the correct Instagram account directly.
+async function sendDM(recipientId, text, token) {
     if (!recipientId || !text) return;
     try {
-        const senderId = igBusinessId || 'me';
-        const url = new URL(`${BASE_URL}/${senderId}/messages`);
+        const url = new URL(`${IG_BASE}/me/messages`);
         url.searchParams.set('access_token', token);
-        await fetch(url.toString(), {
+        const res = await fetch(url.toString(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recipient: { id: recipientId }, message: { text } })
         });
-        console.log(`[DM Sent] -> ${recipientId}`);
+        const data = await res.json();
+        if (data.error) console.error('[DM Error]', data.error.message);
+        else console.log(`[DM Sent] -> ${recipientId}`);
+        return data;
     } catch (e) { console.error('[DM Error]', e.message); }
 }
 
-// Quick replies — Instagram-supported interactive message
-async function sendQuickReply(recipientId, text, quickReplies, token, igBusinessId) {
-    const senderId = igBusinessId || 'me';
-    const url = new URL(`${BASE_URL}/${senderId}/messages`);
+async function sendQuickReply(recipientId, text, quickReplies, token) {
+    const url = new URL(`${IG_BASE}/me/messages`);
     url.searchParams.set('access_token', token);
     const res = await fetch(url.toString(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             recipient: { id: recipientId },
-            message: {
-                text,
-                quick_replies: quickReplies.slice(0, 13) // Instagram max 13
-            }
+            message: { text, quick_replies: quickReplies.slice(0, 13) }
         })
     });
     const data = await res.json();
@@ -84,44 +83,77 @@ async function sendQuickReply(recipientId, text, quickReplies, token, igBusiness
     return data;
 }
 
-async function sendGenericTemplate(recipientId, elements, token, igBusinessId) {
-    const senderId = igBusinessId || 'me';
-    const url = new URL(`${BASE_URL}/${senderId}/messages`);
+async function sendGenericTemplate(recipientId, elements, token) {
+    const url = new URL(`${IG_BASE}/me/messages`);
     url.searchParams.set('access_token', token);
     const res = await fetch(url.toString(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             recipient: { id: recipientId },
-            message: {
-                attachment: {
-                    type: 'template',
-                    payload: { template_type: 'generic', elements }
-                }
-            }
+            message: { attachment: { type: 'template', payload: { template_type: 'generic', elements } } }
         })
     });
     if (!res.ok) throw new Error(`Generic template failed: ${res.status}`);
     return res.json();
 }
 
+// Public reply to a comment on your own post
+// Must use JSON body — NOT query params
 async function replyToComment(commentId, text, token) {
-    const url = new URL(`${BASE_URL}/${commentId}/replies`);
-    url.searchParams.set('message', text);
+    const url = new URL(`${IG_BASE}/${commentId}/replies`);
     url.searchParams.set('access_token', token);
-    const res = await fetch(url.toString(), { method: 'POST' });
+    const res = await fetch(url.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+    });
     if (!res.ok) throw new Error(`Reply failed: ${res.status}`);
     return res.json();
 }
 
+// Private DM to a commenter — MUST use /me/messages with recipient.comment_id
+// This is the only valid way to initiate a private DM from a comment (Business Login)
+// Quick replies are NOT supported here (first-contact thread); plain text only
 async function sendPrivateReply(commentId, text, token) {
     try {
-        const url = new URL(`${BASE_URL}/${commentId}/private_replies`);
-        url.searchParams.set('message', text);
+        const url = new URL(`${IG_BASE}/me/messages`);
         url.searchParams.set('access_token', token);
-        const res = await fetch(url.toString(), { method: 'POST' });
-        return res.ok ? res.json() : null;
-    } catch { return null; }
+        const res = await fetch(url.toString(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                recipient: { comment_id: commentId },
+                message: { text }
+            })
+        });
+        const data = await res.json();
+        if (data.error) console.error('[PrivateReply Error]', data.error.message);
+        return data;
+    } catch (e) {
+        console.error('[PrivateReply Error]', e.message);
+        return null;
+    }
+}
+
+// Reply to a @mention of the business in a comment on another user's post
+// Uses POST /{ig-user-id}/mentions with media_id + comment_id
+async function replyToMention(igUserId, mediaId, commentId, text, token) {
+    try {
+        const url = new URL(`${IG_BASE}/${igUserId}/mentions`);
+        url.searchParams.set('access_token', token);
+        const res = await fetch(url.toString(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ media_id: mediaId, comment_id: commentId, message: text })
+        });
+        const data = await res.json();
+        if (data.error) console.error('[Mention Reply Error]', data.error.message);
+        return data;
+    } catch (e) {
+        console.error('[Mention Reply Error]', e.message);
+        return null;
+    }
 }
 
 async function saveEvent(data) {
@@ -133,7 +165,30 @@ async function saveEvent(data) {
     }
 }
 
-async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation, igBusinessId) {
+// Mark user as disconnected when token expires (error code 190)
+async function handleTokenExpiry(userId) {
+    try {
+        await dbConnect();
+        await User.findOneAndUpdate(
+            { userId },
+            { isConnected: false, tokenExpired: true }
+        );
+        console.warn(`[Token] Marked user ${userId} as disconnected — token expired`);
+    } catch (err) {
+        console.error('[Token Expiry Handler]', err.message);
+    }
+}
+
+// Check API response for token expiry and handle it
+function checkTokenError(data, botUser) {
+    if (data?.error?.code === 190) {
+        handleTokenExpiry(botUser.userId);
+        return true;
+    }
+    return false;
+}
+
+async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation, botUser) {
     if (!commentId) return;
 
     // Dedup check
@@ -169,32 +224,19 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
             try { await replyToComment(commentId, publicReply, token); } catch (e) { console.error('[Public Fail]', e.message); }
         }
 
-        // Private DM — use quick replies (Instagram-supported interactive format)
-        // If a link is configured, include it in the text + a "Visit Link" quick reply chip
+        // Private DM via comment_id — plain text only (first-contact thread)
+        // Quick replies require an existing ongoing DM thread and are NOT supported here
         const dmText = automation.linkUrl
             ? `${privateDM}\n\n🔗 ${automation.linkUrl}`
             : privateDM;
 
-        const quickReplies = automation.linkUrl
-            ? [
-                { content_type: 'text', title: automation.buttonText || 'Visit Link 🔗', payload: 'VISIT_LINK' },
-                { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
-              ]
-            : [
-                { content_type: 'text', title: 'Tell me more 💬', payload: 'MORE_INFO' },
-                { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
-              ];
-
-        try {
-            await sendQuickReply(senderId, dmText, quickReplies, token, igBusinessId);
+        const dmResult = await sendPrivateReply(commentId, dmText, token);
+        if (dmResult && !dmResult.error) {
             replyStatus = 'sent';
-        } catch {
-            // Fallback to plain text if quick reply fails
-            try {
-                await sendDM(senderId, dmText, token, igBusinessId);
-                replyStatus = 'fallback';
-            } catch (e) {
-                console.error('[DM Fallback Fail]', e.message);
+        } else {
+            if (checkTokenError(dmResult, botUser)) {
+                replyStatus = 'token_expired';
+            } else {
                 replyStatus = 'failed';
             }
         }
@@ -206,10 +248,9 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
     await saveEvent({
         type,
         targetBusinessId: automation.instagramBusinessId,
-        from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name, profilePic: fromInfo?.profilePic },
+        from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name },
         content: { commentId, text: fromInfo?.text, mediaId },
-        reply: { publicReply, privateDM, status: replyStatus },
-        raw: rawPayload
+        reply: { publicReply, privateDM: privateDM, status: replyStatus },
     });
 }
 
@@ -235,9 +276,28 @@ export async function GET(request) {
 // ─── POST — Incoming Webhook Events ──────────────────────────────────────────
 
 export async function POST(request) {
+    // Read raw body text for signature validation before parsing JSON
+    let rawBody;
+    try {
+        rawBody = await request.text();
+    } catch {
+        return new NextResponse('Bad Request', { status: 400 });
+    }
+
+    // X-Hub-Signature-256 validation (required by Meta)
+    const appSecret = process.env.META_APP_SECRET;
+    const sigHeader = request.headers.get('x-hub-signature-256');
+    if (appSecret && sigHeader) {
+        const expected = 'sha256=' + createHmac('sha256', appSecret).update(rawBody).digest('hex');
+        if (sigHeader !== expected) {
+            console.warn('[Webhook] ❌ Signature mismatch — rejecting request');
+            return new NextResponse('Unauthorized', { status: 401 });
+        }
+    }
+
     let body;
     try {
-        body = await request.json();
+        body = JSON.parse(rawBody);
     } catch {
         return new NextResponse('Bad Request', { status: 400 });
     }
@@ -256,9 +316,7 @@ export async function POST(request) {
             continue;
         }
 
-        const botUser = await User.findOne({
-            $or: [{ instagramBusinessId: targetId }, { pageId: targetId }]
-        }).catch(() => null);
+        const botUser = await User.findOne({ instagramBusinessId: targetId }).catch(() => null);
 
         if (!botUser?.instagramAccessToken) {
             console.log(`[Webhook] No active account for ID: ${targetId}`);
@@ -268,28 +326,49 @@ export async function POST(request) {
         const token = botUser.instagramAccessToken;
         const igBusinessId = botUser.instagramBusinessId;
 
-        // 1. Comments & Mentions (Feed)
+        // 1. Comments & Mentions (Feed / Live Comments)
         const changes = entry.changes || [];
         for (const change of changes) {
             const { field, value } = change;
             const fromId = value.from?.id || value.sender_id;
             if (fromId === targetId || fromId === igBusinessId) continue;
 
-            if (field === 'feed' || field === 'comments') {
-                if (value.item === 'comment' || field === 'comments') {
+            if (field === 'feed' || field === 'comments' || field === 'live_comments') {
+                if (value.item === 'comment' || field === 'comments' || field === 'live_comments') {
                     const cid = value.comment_id || value.id;
                     console.log(`[Comment] @${value.from?.username}: ${value.message || value.text}`);
                     await handleAutoReply(cid, fromId, 'comment', {
                         id: fromId, username: value.from?.username, text: value.message || value.text
-                    }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, igBusinessId);
+                    }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, botUser);
                 }
             }
 
+            // Mentions: user tagged the business in a comment on another post
+            // Must use POST /{ig-user-id}/mentions (NOT comment replies endpoint)
             if (field === 'mention' || field === 'mentions') {
-                const cid = value.comment_id || value.id;
-                await handleAutoReply(cid, fromId, 'mention', {
-                    id: fromId, username: value.from?.username, text: value.text
-                }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, igBusinessId);
+                const mentionMediaId = value.media_id;
+                const mentionCommentId = value.comment_id;
+                console.log(`[Mention] in media ${mentionMediaId}, comment ${mentionCommentId}`);
+
+                if (botUser.automation?.isActive && mentionMediaId && mentionCommentId) {
+                    const mentionReply = botUser.automation.replyMessages?.length > 0
+                        ? botUser.automation.replyMessages[Math.floor(Math.random() * botUser.automation.replyMessages.length)]
+                        : 'Thanks for the mention! 🙌';
+
+                    const mentionResult = await replyToMention(igBusinessId, mentionMediaId, mentionCommentId, mentionReply, token);
+                    const mentionStatus = mentionResult && !mentionResult.error ? 'sent' : 'failed';
+                    if (mentionResult && checkTokenError(mentionResult, botUser)) {
+                        // token expired — stop processing
+                    }
+
+                    await saveEvent({
+                        type: 'mention',
+                        targetBusinessId: igBusinessId,
+                        from: { id: fromId, username: value.from?.username },
+                        content: { commentId: mentionCommentId, mediaId: mentionMediaId, text: value.text },
+                        reply: { publicReply: mentionReply, status: mentionStatus },
+                    });
+                }
             }
         }
 
@@ -308,8 +387,8 @@ export async function POST(request) {
                 if (mid) {
                     try {
                         await dbConnect();
-                        // findOneAndUpdate with upsert: true is atomic. 
-                        // If it returns a result where lastErrorObject.updatedExisting is true, 
+                        // findOneAndUpdate with upsert: true is atomic.
+                        // If it returns a result where lastErrorObject.updatedExisting is true,
                         // it means another instance already successfully claimed this mid.
                         const dedup = await ProcessedMid.findOneAndUpdate(
                             { mid },
@@ -325,7 +404,7 @@ export async function POST(request) {
                     } catch (err) {
                         console.error('[Dedup Error]', err.message);
                         // If DB is down or error, we skip to be safe against infinite loops/retries
-                        continue; 
+                        continue;
                     }
                 }
 
@@ -370,7 +449,6 @@ export async function POST(request) {
                         id: senderId,
                         username: profile?.username,
                         name: profile?.name,
-                        profilePic: profile?.profile_picture_url,
                     };
 
                     if (isSharedContent) {
@@ -389,7 +467,7 @@ export async function POST(request) {
                                     image_url: thumbnailUrl,
                                     subtitle: 'Check out more content and updates.',
                                     buttons: [{ type: 'web_url', url: appUrl, title: 'Visit Us 🚀' }]
-                                }], token, igBusinessId);
+                                }], token);
                                 console.log(`[Generic Sent] -> ${senderId}`);
                                 templateSent = true;
                                 replySentForThisMessage = true;
@@ -402,13 +480,13 @@ export async function POST(request) {
                                 await sendQuickReply(senderId, replyText, [
                                     { content_type: 'text', title: 'Visit Us 🚀', payload: 'VISIT_SITE' },
                                     { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
-                                ], token, igBusinessId);
+                                ], token);
                                 console.log(`[QuickReply Sent] -> ${senderId}`);
                                 templateSent = true;
                                 replySentForThisMessage = true;
                             } catch {
                                 try {
-                                    await sendDM(senderId, replyText, token, igBusinessId);
+                                    await sendDM(senderId, replyText, token);
                                     replySentForThisMessage = true;
                                 } catch (e) { console.error('[DM Fallback Fail]', e.message); }
                             }
@@ -418,9 +496,8 @@ export async function POST(request) {
                             type: 'reel_share',
                             targetBusinessId: botUser.instagramBusinessId,
                             from: fromInfo,
-                            content: { mediaId: rawMediaId, mediaUrl, thumbnailUrl, permalink, attachmentType, text: msgText },
+                            content: { mediaId: rawMediaId, mediaUrl: permalink ? null : mediaUrl, thumbnailUrl, permalink, attachmentType, text: msgText },
                             reply: { privateDM: replyText, status: replySentForThisMessage ? 'sent' : 'failed' },
-                            raw: event
                         });
 
                     } else if (att.type === 'image' || att.type === 'video' || att.type === 'audio') {
@@ -431,7 +508,6 @@ export async function POST(request) {
                             from: fromInfo,
                             content: { mediaUrl, thumbnailUrl: thumbnailUrl || mediaUrl, attachmentType, text: msgText },
                             reply: { status: 'skipped' },
-                            raw: event
                         });
                     }
                 }
@@ -441,10 +517,9 @@ export async function POST(request) {
                     await saveEvent({
                         type: 'dm',
                         targetBusinessId: botUser.instagramBusinessId,
-                        from: { id: senderId, username: profile?.username, name: profile?.name, profilePic: profile?.profile_picture_url },
+                        from: { id: senderId, username: profile?.username, name: profile?.name },
                         content: { text: msgText },
                         reply: { status: 'skipped' },
-                        raw: event
                     });
                 }
             }
@@ -456,21 +531,23 @@ export async function POST(request) {
                 console.log(`[Postback] From ${senderId}: ${title} (${payload})`);
 
                 const pbProfile = await getUser(senderId, token);
+                const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://aidmbot.vercel.app';
                 let replyText = 'Thanks for your choice! 🌟';
-                if (payload === 'GET_DOCS_PAYLOAD') {
-                    replyText = 'Sure! 📚 You can find our docs at: https://github.com/amanraj2408/Query-Bot/blob/main/README.md';
+                if (payload === 'VISIT_SITE') {
+                    replyText = `Here's the link you requested: ${appUrl} 🚀`;
                 } else if (payload === 'CONTACT_SUPPORT_PAYLOAD') {
                     replyText = "Our support team has been notified. 💬 We'll get back to you shortly!";
                 }
 
-                await sendDM(senderId, replyText, token, igBusinessId);
+                const dmResult = await sendDM(senderId, replyText, token);
+                checkTokenError(dmResult, botUser);
+
                 await saveEvent({
                     type: 'postback',
                     targetBusinessId: botUser.instagramBusinessId,
-                    from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name, profilePic: pbProfile?.profile_picture_url },
+                    from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
                     content: { text: title, url: payload },
                     reply: { privateDM: replyText, status: 'sent' },
-                    raw: event
                 });
             }
         }

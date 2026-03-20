@@ -38,7 +38,7 @@ export default function SignInPage() {
           <div className="w-11 h-11 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-pink-200">
             <Bot className="text-white" size={24} />
           </div>
-          <span className="text-xl font-black text-slate-900 uppercase tracking-tight">Ai DM Bot</span>
+          <span className="text-xl font-black text-slate-900 uppercase tracking-tight">Engagr</span>
         </div>
 
         <div className="bg-white border border-slate-100 rounded-[32px] p-10 shadow-[0_24px_64px_-16px_rgba(0,0,0,0.07)] space-y-8">

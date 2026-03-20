@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 
 const secret = new TextEncoder().encode(
-  process.env.JWT_SECRET || "ai-dm-bot-default-secret-change-in-production"
+  process.env.JWT_SECRET || "engagr-default-secret-change-in-production"
 );
 
 export async function generateToken(payload) {

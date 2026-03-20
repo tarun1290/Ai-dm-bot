@@ -1,16 +1,12 @@
 "use client";
 
 import React from 'react';
-import { 
-  Home, 
-  Users2, 
-  Settings, 
-  HelpCircle, 
-  LogOut, 
-  ChevronLeft, 
+import {
+  Home,
+  Settings,
+  ChevronLeft,
   ChevronRight,
   Zap,
-  MessageCircle,
   ShieldCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,9 +30,7 @@ const SidebarItem = ({ icon: Icon, label, active = false, collapsed = false, onC
 export default function Sidebar({ isCollapsed, setIsCollapsed, activeTab = "Home", onTabChange }) {
   const menuItems = [
     { id: "Home", label: "Home", icon: Home },
-    { id: "Contacts", label: "Contacts", icon: Users2 },
     { id: "Automation", label: "Automation", icon: Zap },
-    { id: "Inbox", label: "Inbox", icon: MessageCircle }
   ];
 
   return (
@@ -52,7 +46,7 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, activeTab = "Home
           <ShieldCheck className="text-white" size={18} />
         </div>
         {!isCollapsed && (
-          <span className="text-xl font-bold tracking-tight text-black uppercase">Ai DM Bot</span>
+          <span className="text-xl font-bold tracking-tight text-black uppercase">Engagr</span>
         )}
       </div>
 
@@ -71,7 +65,6 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, activeTab = "Home
 
       <div className="px-4 py-4 border-t border-slate-100 space-y-0.5 bg-[#fdfdfd]">
         <SidebarItem icon={Settings} label="Settings" active={activeTab === "Settings"} collapsed={isCollapsed} onClick={() => onTabChange("Settings")} />
-        <SidebarItem icon={HelpCircle} label="Help" active={activeTab === "Help"} collapsed={isCollapsed} onClick={() => onTabChange("Help")} />
       </div>
 
       <button 

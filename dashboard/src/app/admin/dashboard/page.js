@@ -91,7 +91,7 @@ export default async function AdminDashboard() {
           </div>
           <div>
             <p className="text-sm font-black text-slate-900">Admin Panel</p>
-            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Ai DM Bot</p>
+            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Engagr</p>
           </div>
         </div>
         <form action={adminLogout}>

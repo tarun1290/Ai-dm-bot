@@ -134,11 +134,11 @@ export default function Settings({ stats }) {
         icon={ShieldOff}
         iconColor="text-amber-500"
         title="Deauthorize App"
-        description="Remove Ai DM Bot access from your Meta account"
+        description="Remove Engagr access from your Meta account"
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-500 font-medium leading-relaxed">
-            You can revoke Ai DM Bot&apos;s access to your Instagram and Facebook data directly from Meta&apos;s settings. This removes all permissions granted to the app.
+            You can revoke Engagr&apos;s access to your Instagram and Facebook data directly from Meta&apos;s settings. This removes all permissions granted to the app.
           </p>
           <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Meta Deauthorize Callback URL</p>

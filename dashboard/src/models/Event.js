@@ -11,28 +11,25 @@ const EventSchema = new mongoose.Schema({
         id: String,
         username: String,
         name: String,
-        profilePic: String,
     },
     content: {
         commentId: String,
         mediaId: String,
         text: String,
-        url: String,
-        mediaUrl: String,        // Direct playable/viewable media URL
-        thumbnailUrl: String,    // Preview image for videos/reels
-        permalink: String,       // Instagram post permalink
-        attachmentType: String,  // reel | post_share | image | video | audio | media
+        mediaUrl: String,
+        thumbnailUrl: String,
+        permalink: String,
+        attachmentType: String,
     },
     reply: {
         publicReply: String,
         privateDM: String,
         status: {
             type: String,
-            enum: ['sent', 'failed', 'skipped', 'fallback'],
+            enum: ['sent', 'failed', 'skipped', 'fallback', 'token_expired'],
             default: 'skipped'
         }
     },
-    raw: mongoose.Schema.Types.Mixed,
     createdAt: {
         type: Date,
         default: Date.now

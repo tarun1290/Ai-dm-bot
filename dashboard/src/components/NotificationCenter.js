@@ -125,11 +125,6 @@ export default function NotificationCenter() {
             )}
           </div>
 
-          <div className="p-3 bg-slate-50 border-t border-slate-100 text-center">
-            <button className="text-[11px] font-black uppercase tracking-widest text-slate-400 hover:text-primary transition-colors">
-              Mark all as read
-            </button>
-          </div>
         </div>
       )}
     </div>

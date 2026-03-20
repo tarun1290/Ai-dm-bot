@@ -25,8 +25,8 @@ export async function deauthorizeInstagram() {
   await User.findOneAndUpdate(
     { userId },
     {
-      $unset: { instagramAccessToken: 1, pageAccessToken: 1, instagramBusinessId: 1, instagramUsername: 1, instagramProfilePic: 1, pageId: 1 },
-      $set: { isConnected: false },
+      $unset: { instagramAccessToken: 1, instagramBusinessId: 1, instagramUsername: 1, instagramProfilePic: 1 },
+      $set: { isConnected: false, tokenExpired: false },
     }
   );
 

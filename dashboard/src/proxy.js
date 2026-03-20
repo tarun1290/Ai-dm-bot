@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
 const secret = new TextEncoder().encode(
-  process.env.JWT_SECRET || "ai-dm-bot-default-secret-change-in-production"
+  process.env.JWT_SECRET || "engagr-default-secret-change-in-production"
 );
 
 const PUBLIC_PATHS = ["/", "/sign-in", "/sign-up", "/api/webhook", "/api/auth"];

@@ -8,7 +8,7 @@ const outfit = Outfit({
 });
 
 export const metadata = {
-  title: "Ai DM Bot | Automation Dashboard",
+  title: "Engagr | Instagram Automation",
   description: "Next-gen Instagram automation and DM management",
 };
 

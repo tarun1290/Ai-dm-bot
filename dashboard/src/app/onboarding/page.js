@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Instagram,
   ArrowRight,
   Zap,
   CheckCircle2,
@@ -11,6 +10,15 @@ import {
   AlertCircle,
   ShieldCheck as ShieldText
 } from "lucide-react";
+
+// Inline Instagram SVG — lucide-react's Instagram icon is deprecated
+const Instagram = ({ size = 24, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+    <circle cx="12" cy="12" r="4"/>
+    <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+  </svg>
+);
 import { useRouter } from "next/navigation";
 import { getAccountsFromToken, saveDiscoveredAccount } from "../dashboard/actions";
 
@@ -23,8 +31,7 @@ export default function Onboarding() {
   const [connectedUsername, setConnectedUsername] = useState('');
   const [oauthError, setOauthError] = useState('');
 
-  const fbAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "777188381785658";
-  const fbLoginConfigId = process.env.NEXT_PUBLIC_FACEBOOK_LOGIN_CONFIG_ID || "1187399100137844";
+  const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "2989539487909963";
 
   // Handle OAuth redirect — Facebook sends ?code= back to this page
   useEffect(() => {
@@ -33,7 +40,7 @@ export default function Onboarding() {
     const error = params.get('error');
     if (code) {
       window.history.replaceState(null, null, window.location.pathname);
-      handleOAuthTokenDiscovery(code, true);
+      handleOAuthTokenDiscovery(code);
     } else if (error) {
       window.history.replaceState(null, null, window.location.pathname);
       setOauthError('Login was cancelled or permissions were not granted. Please try again.');
@@ -71,21 +78,20 @@ export default function Onboarding() {
   const handleInstagramLogin = () => {
     setOauthError('');
     setLoading(true);
-    // Redirect to Facebook OAuth — config_id carries all permissions, response_type=code required
     const redirectUri = `${window.location.origin}/onboarding`;
-    const url = new URL('https://www.facebook.com/dialog/oauth');
-    url.searchParams.set('client_id', fbAppId);
-    url.searchParams.set('config_id', fbLoginConfigId);
+    const url = new URL('https://www.instagram.com/oauth/authorize');
+    url.searchParams.set('client_id', appId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('response_type', 'code');
+    url.searchParams.set('scope', 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments');
     window.location.href = url.toString();
   };
 
-  const handleOAuthTokenDiscovery = async (tokenOrCode, isCode = false) => {
+  const handleOAuthTokenDiscovery = async (tokenOrCode) => {
     setLoading(true);
     setOauthError('');
     try {
-      const res = await getAccountsFromToken(tokenOrCode, isCode);
+      const res = await getAccountsFromToken(tokenOrCode);
       if (res.success) {
         if (res.accounts.length === 1) {
           // Only one account — auto-select and go straight to dashboard

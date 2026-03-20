@@ -47,7 +47,7 @@ export default async function AdminLoginPage({ searchParams }) {
         </div>
 
         <p className="text-center text-[11px] text-slate-400 uppercase tracking-widest font-bold">
-          Ai DM Bot · Admin Panel
+          Engagr · Admin Panel
         </p>
       </div>
     </div>

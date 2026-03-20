@@ -40,7 +40,7 @@ export default function SignUpPage() {
           <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center shadow-lg shadow-pink-900/40">
             <Bot className="text-white" size={22} />
           </div>
-          <span className="text-white font-black text-lg uppercase tracking-tight">Ai DM Bot</span>
+          <span className="text-white font-black text-lg uppercase tracking-tight">Engagr</span>
         </div>
 
         <div className="space-y-8">
@@ -71,7 +71,7 @@ export default function SignUpPage() {
           </div>
         </div>
 
-        <p className="text-slate-600 text-xs">© 2024 Ai DM Bot Inc.</p>
+        <p className="text-slate-600 text-xs">© 2025 Engagr Inc.</p>
       </div>
 
       {/* Right panel — form */}

@@ -47,7 +47,7 @@ export default async function DataDeletionStatus({ searchParams }) {
         </div>
 
         <p className="text-slate-600 text-xs">
-          Ai DM Bot · If you have questions contact us at support@aidmbot.com
+          Engagr · If you have questions contact us at support@engagr.app
         </p>
       </div>
     </div>

@@ -7,7 +7,6 @@ import {
   Zap,
   MessageSquare,
   Share2,
-  TrendingUp,
   ArrowUpRight,
   ChevronRight,
   Plus,
@@ -21,11 +20,9 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
-  Clock,
   SkipForward,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import HelpCenter from "@/components/Help";
 import Automation from "@/components/Automation";
 import Settings from "@/components/Settings";
 import { getDashboardStats } from './actions';
@@ -40,10 +37,11 @@ const INTERACTION_TYPE_CONFIG = {
 };
 
 const REPLY_STATUS_CONFIG = {
-  sent:     { label: "Replied",  icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-100" },
-  failed:   { label: "Failed",   icon: XCircle,      color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-100"    },
-  fallback: { label: "Fallback", icon: RefreshCw,    color: "text-amber-600",   bg: "bg-amber-50",   border: "border-amber-100"   },
-  skipped:  { label: "Skipped",  icon: SkipForward,  color: "text-slate-400",   bg: "bg-slate-50",   border: "border-slate-200"   },
+  sent:          { label: "Replied",  icon: CheckCircle2, color: "text-emerald-600", bg: "bg-emerald-50", border: "border-emerald-100" },
+  failed:        { label: "Failed",   icon: XCircle,      color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-100"    },
+  fallback:      { label: "Fallback", icon: RefreshCw,    color: "text-amber-600",   bg: "bg-amber-50",   border: "border-amber-100"   },
+  skipped:       { label: "Skipped",  icon: SkipForward,  color: "text-slate-400",   bg: "bg-slate-50",   border: "border-slate-200"   },
+  token_expired: { label: "Expired",  icon: XCircle,      color: "text-orange-600",  bg: "bg-orange-50",  border: "border-orange-100"  },
 };
 
 function timeAgo(date) {
@@ -87,9 +85,6 @@ function InteractionRow({ event }) {
           <span className={cn("text-[10px] font-black uppercase tracking-widest", typeConf.color)}>
             {typeConf.label}
           </span>
-          {event.from?.profilePic && (
-            <img src={event.from.profilePic} alt="" className="w-5 h-5 rounded-full object-cover border border-slate-200 flex-shrink-0" />
-          )}
           {event.from?.username ? (
             <span className="text-[12px] font-bold text-slate-700">@{event.from.username}</span>
           ) : event.from?.name ? (
@@ -196,7 +191,7 @@ export default function Home() {
     };
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000);
+    const interval = setInterval(fetchStats, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -374,8 +369,6 @@ export default function Home() {
             </section>
           </div>
         );
-      case "Help":
-        return <HelpCenter />;
       case "Automation":
         return <Automation />;
       case "Settings":
