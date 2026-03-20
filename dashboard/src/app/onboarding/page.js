@@ -24,28 +24,28 @@ export default function Onboarding() {
   const [oauthError, setOauthError] = useState('');
 
   const fbAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "777188381785658";
-
-
+  const fbLoginConfigId = process.env.NEXT_PUBLIC_FACEBOOK_LOGIN_CONFIG_ID || "1187399100137844";
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get("code");
-    const error = urlParams.get("error");
-    const errorDesc = urlParams.get("error_description");
+    // Load Facebook JS SDK
+    const initFB = () => {
+      if (window.FB) {
+        window.FB.init({ appId: fbAppId, cookie: true, xfbml: false, version: 'v25.0' });
+      }
+    };
 
-    // Always clean the URL so params don't persist on refresh
-    if (code || error) {
-      window.history.replaceState(null, null, window.location.pathname);
-    }
-
-    if (error) {
-      // Facebook returned an error (e.g. redirect_uri mismatch, user cancelled)
-      const msg = errorDesc
-        ? decodeURIComponent(errorDesc.replace(/\+/g, ' '))
-        : `Authorization failed: ${error}`;
-      setOauthError(msg);
-    } else if (code) {
-      handleOAuthTokenDiscovery(code, true);
+    if (window.FB) {
+      initFB();
+    } else {
+      window.fbAsyncInit = initFB;
+      if (!document.getElementById('facebook-jssdk')) {
+        const script = document.createElement('script');
+        script.id = 'facebook-jssdk';
+        script.src = 'https://connect.facebook.net/en_US/sdk.js';
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
     }
   }, []);
 
@@ -80,19 +80,36 @@ export default function Onboarding() {
   const handleInstagramLogin = () => {
     setOauthError('');
 
-    if (!fbAppId) {
-      setOauthError('App configuration error: Facebook App ID is missing.');
+    if (!window.FB) {
+      setOauthError('Facebook SDK is still loading. Please wait a moment and try again.');
       return;
     }
 
-    // Use Instagram's OAuth endpoint directly — returns an Instagram User Token.
-    // This works for Business/Creator accounts WITHOUT needing a Facebook Page.
-    // Do NOT add pages_show_list or any Facebook-scoped permissions here.
-    const redirectUri = encodeURIComponent(`${window.location.origin}/onboarding`);
-    const scope = 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish';
-    const authUrl = `https://www.instagram.com/oauth/authorize?client_id=${fbAppId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
+    setLoading(true);
 
-    window.location.href = authUrl;
+    // Safety net: if popup is blocked, callback never fires — reset after 12s
+    let responded = false;
+    const popupTimeout = setTimeout(() => {
+      if (!responded) {
+        setLoading(false);
+        setOauthError('The login popup may have been blocked. Allow popups for this site in your browser address bar, then try again.');
+      }
+    }, 12000);
+
+    // config_id carries all permissions — do NOT pass scope separately
+    window.FB.login(
+      function(response) {
+        responded = true;
+        clearTimeout(popupTimeout);
+        if (response.authResponse) {
+          handleOAuthTokenDiscovery(response.authResponse.accessToken, false);
+        } else {
+          setLoading(false);
+          setOauthError('Login was cancelled or permissions were not granted. Please try again.');
+        }
+      },
+      { config_id: fbLoginConfigId, auth_type: 'rerequest' }
+    );
   };
 
   const handleOAuthTokenDiscovery = async (tokenOrCode, isCode = false) => {
