@@ -41,7 +41,7 @@ async function getUser(id, token) {
     if (!id) return null;
     try {
         const url = new URL(`${IG_BASE}/${id}`);
-        url.searchParams.set('fields', 'name,username,profile_picture_url');
+        url.searchParams.set('fields', 'name,username');
         url.searchParams.set('access_token', token);
         const res = await fetch(url.toString());
         return res.ok ? res.json() : null;
@@ -203,7 +203,8 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
 
     if (!automation?.isActive) return;
 
-    const mediaId = rawPayload.media_id || rawPayload.post_id;
+    // Comments webhook nests the media ID at value.media.id — NOT value.media_id
+    const mediaId = rawPayload.media?.id || rawPayload.media_id || rawPayload.post_id;
     if (automation.postTrigger === 'specific' && automation.selectedPostId && mediaId !== automation.selectedPostId) return;
 
     const commentText = (fromInfo?.text || '').toLowerCase();
@@ -335,10 +336,14 @@ export async function POST(request) {
 
             if (field === 'feed' || field === 'comments' || field === 'live_comments') {
                 if (value.item === 'comment' || field === 'comments' || field === 'live_comments') {
+                    // Skip sub-replies (replies to comments) — only handle top-level comments
+                    // parent_id is set when this is a reply to an existing comment
+                    if (value.parent_id) continue;
+
                     const cid = value.comment_id || value.id;
-                    console.log(`[Comment] @${value.from?.username}: ${value.message || value.text}`);
+                    console.log(`[Comment] @${value.from?.username}: ${value.text || value.message}`);
                     await handleAutoReply(cid, fromId, 'comment', {
-                        id: fromId, username: value.from?.username, text: value.message || value.text
+                        id: fromId, username: value.from?.username, text: value.text || value.message
                     }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, botUser);
                 }
             }

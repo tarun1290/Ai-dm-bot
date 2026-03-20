@@ -152,7 +152,7 @@ export async function saveDiscoveredAccount(details) {
   try {
     // Business Login for Instagram → subscribe via graph.instagram.com
     const subUrl = new URL(`https://graph.instagram.com/v25.0/me/subscribed_apps`);
-    subUrl.searchParams.set('subscribed_fields', 'comments,messages,message_reactions,messaging_seen,messaging_postbacks,messaging_referral,standby,live_comments,mentions');
+    subUrl.searchParams.set('subscribed_fields', 'comments,live_comments,mentions,messages,message_reactions,messaging_postbacks,messaging_referral');
     subUrl.searchParams.set('access_token', accessToken);
     const subRes = await fetch(subUrl.toString(), { method: "POST" });
     const subData = await subRes.json();
