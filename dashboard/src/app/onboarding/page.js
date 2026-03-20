@@ -21,17 +21,13 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false);
   const [discoveredAccounts, setDiscoveredAccounts] = useState([]);
   const [connectedUsername, setConnectedUsername] = useState('');
-  const [isMounted, setIsMounted] = useState(false);
   const [oauthError, setOauthError] = useState('');
 
   const fbAppId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "777188381785658";
-  const fbLoginConfigId = process.env.NEXT_PUBLIC_FACEBOOK_LOGIN_CONFIG_ID || "1187399100137844";
 
 
 
   useEffect(() => {
-    setIsMounted(true);
-
     const urlParams = new URLSearchParams(window.location.search);
     const code = urlParams.get("code");
     const error = urlParams.get("error");
@@ -89,9 +85,12 @@ export default function Onboarding() {
       return;
     }
 
-    // config_id carries all required scopes — do NOT pass scope= separately or Facebook rejects it.
+    // Use Instagram's OAuth endpoint directly — returns an Instagram User Token.
+    // This works for Business/Creator accounts WITHOUT needing a Facebook Page.
+    // Do NOT add pages_show_list or any Facebook-scoped permissions here.
     const redirectUri = encodeURIComponent(`${window.location.origin}/onboarding`);
-    const authUrl = `https://www.facebook.com/dialog/oauth?client_id=${fbAppId}&config_id=${fbLoginConfigId}&redirect_uri=${redirectUri}&response_type=code`;
+    const scope = 'instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments,instagram_business_content_publish';
+    const authUrl = `https://www.instagram.com/oauth/authorize?client_id=${fbAppId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code`;
 
     window.location.href = authUrl;
   };
@@ -253,7 +252,7 @@ export default function Onboarding() {
       </div>
 
       <div className="absolute bottom-12 flex flex-col items-center space-y-2">
-         <p className="text-[11px] font-bold text-slate-300 uppercase tracking-[0.2em]">Secure Facebook SDK Integration</p>
+         <p className="text-[11px] font-bold text-slate-300 uppercase tracking-[0.2em]">Secure Instagram OAuth 2.0</p>
       </div>
 
       {subStep === 0 && (

@@ -80,48 +80,92 @@ export async function getDashboardStats() {
 }
 
 export async function getAccountsFromToken(tokenOrCode, isCode = false) {
-  // Use Facebook App ID (JS SDK / dialog/oauth flow)
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "777188381785658";
   const appSecret = process.env.META_APP_SECRET;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
   const redirectUri = `${appUrl}/onboarding`;
 
   let token = tokenOrCode;
+  let isIgToken = false;
 
   try {
     if (isCode) {
-      if (!appSecret) {
-        throw new Error("Missing META_APP_SECRET in environment variables.");
-      }
+      if (!appSecret) throw new Error("Missing META_APP_SECRET in environment variables.");
 
-      // Exchange auth code for short-lived token
-      const exchangeRes = await fetch(
-        `https://graph.facebook.com/v25.0/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${tokenOrCode}`
-      );
-      const exchangeData = await exchangeRes.json();
+      // ── Step 1: Try Instagram token exchange first (instagram.com/oauth/authorize flow) ──
+      // This returns an Instagram User Token — works without a Facebook Page.
+      const igExchangeRes = await fetch("https://api.instagram.com/oauth/access_token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: appId,
+          client_secret: appSecret,
+          grant_type: "authorization_code",
+          redirect_uri: redirectUri,
+          code: tokenOrCode,
+        }),
+      });
+      const igExchangeData = await igExchangeRes.json();
 
-      if (exchangeData.error) {
-        throw new Error(`Token exchange failed: ${exchangeData.error.message}`);
-      }
+      if (!igExchangeData.error && igExchangeData.access_token) {
+        token = igExchangeData.access_token;
+        isIgToken = true;
 
-      token = exchangeData.access_token;
-
-      // Try to upgrade to long-lived token (works for FB User Tokens; may be a no-op for IG tokens — that's fine)
-      if (appSecret) {
+        // Upgrade to long-lived Instagram token (60 days)
         try {
-          const longTokenRes = await fetch(
+          const longRes = await fetch(
+            `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${appSecret}&access_token=${token}`
+          );
+          const longData = await longRes.json();
+          if (!longData.error && longData.access_token) token = longData.access_token;
+        } catch { /* keep short-lived on failure */ }
+      } else {
+        // ── Step 2: Fall back to Facebook token exchange (for users with Pages) ──
+        const fbExchangeRes = await fetch(
+          `https://graph.facebook.com/v25.0/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${tokenOrCode}`
+        );
+        const fbExchangeData = await fbExchangeRes.json();
+        if (fbExchangeData.error) throw new Error(`Token exchange failed: ${fbExchangeData.error.message}`);
+        token = fbExchangeData.access_token;
+
+        // Upgrade to long-lived Facebook token
+        try {
+          const longRes = await fetch(
             `https://graph.facebook.com/v25.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${token}`
           );
-          const longTokenData = await longTokenRes.json();
-          if (!longTokenData.error && longTokenData.access_token) {
-            token = longTokenData.access_token;
-          }
-        } catch { /* keep short-lived token on failure */ }
+          const longData = await longRes.json();
+          if (!longData.error && longData.access_token) token = longData.access_token;
+        } catch { /* keep short-lived on failure */ }
       }
     }
 
-    // ── Approach 1: Facebook User Token + Pages ──
-    // Works when the user has a Facebook Page linked to their Instagram Business account.
+    // ── Approach A: Instagram User Token → /me on graph.instagram.com ──
+    // Works when token came from instagram.com/oauth/authorize (no Facebook Page needed)
+    if (isIgToken) {
+      const igMeRes = await fetch(
+        `https://graph.instagram.com/me?fields=id,username,name&access_token=${token}`
+      );
+      const igMe = await igMeRes.json();
+
+      if (!igMe.error && igMe.username) {
+        return {
+          success: true,
+          accounts: [{
+            pageId: null,
+            pageToken: token,
+            igId: igMe.id,
+            username: igMe.username,
+            name: igMe.name || igMe.username,
+            profilePic: null,
+            isIgToken: true,
+          }],
+          totalPages: 1,
+        };
+      }
+    }
+
+    // ── Approach B: Facebook User Token → Pages → linked Instagram Business account ──
+    // Works when user has a Facebook Page linked to their Instagram Business account.
     const pagesRes = await fetch(
       `https://graph.facebook.com/v25.0/me/accounts?fields=name,access_token,instagram_business_account{id,username,name}&access_token=${token}`
     );
@@ -139,35 +183,10 @@ export async function getAccountsFromToken(tokenOrCode, isCode = false) {
           profilePic: null,
           isIgToken: false,
         }));
-      if (accounts.length > 0) {
-        return { success: true, accounts, totalPages: pagesData.data.length };
-      }
+      if (accounts.length > 0) return { success: true, accounts, totalPages: pagesData.data.length };
     }
 
-    // ── Approach 2: Facebook User Token + instagram_business_accounts edge ──
-    // Works when the user authenticated via config_id (Instagram Login for Business)
-    // but does NOT have a Facebook Page — the token is a Facebook User Token that has
-    // instagram_business_basic permission granted directly.
-    const igBizRes = await fetch(
-      `https://graph.facebook.com/v25.0/me/instagram_business_accounts?fields=id,username,name&access_token=${token}`
-    );
-    const igBizData = await igBizRes.json();
-
-    if (!igBizData.error && igBizData.data?.length > 0) {
-      const accounts = igBizData.data.map(ig => ({
-        pageId: null,
-        pageToken: token,
-        igId: ig.id,
-        username: ig.username,
-        name: ig.name,
-        profilePic: null,
-        isIgToken: true,
-      }));
-      return { success: true, accounts, totalPages: igBizData.data.length };
-    }
-
-    // Nothing found — surface the most useful error
-    const reason = pagesData.error?.message || igBizData.error?.message || "No Instagram Business account found.";
+    const reason = pagesData.error?.message || "No Instagram Business or Creator account found.";
     return { success: true, accounts: [], totalPages: 0, debugReason: reason };
   } catch (err) {
     return { success: false, error: err.message };
