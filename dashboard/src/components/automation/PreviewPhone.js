@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
-import { Heart, MessageCircle, Send } from "lucide-react";
+import { Heart, MessageCircle, Send, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export default function PreviewPhone({ data, dmContent, buttonText, linkUrl, selectedPostId }) {
+export default function PreviewPhone({ data, dmContent, buttonText, linkUrl, selectedPostId, reelShareEnabled, reelShareMessage, reelShareButtonText, reelShareLinkUrl, reelCategories }) {
   const [tab, setTab] = useState("DM");
   const currentPost = data.media?.find(p => p.id === selectedPostId) || data.media?.[0];
+
+  const tabs = ['Post', 'Comments', 'DM'];
+  if (reelShareEnabled) tabs.push('Reel');
+
+  // Pick the first enabled category with a message for preview, or fall back to legacy
+  const previewCategory = reelCategories?.find(c => c.enabled && c.reply?.message);
 
   return (
     <div className="flex-1 flex justify-center sticky top-24 h-fit pb-12">
@@ -142,11 +148,63 @@ export default function PreviewPhone({ data, dmContent, buttonText, linkUrl, sel
               </div>
             </div>
           )}
+
+          {tab === "Reel" && (
+            <div className="animate-in zoom-in-95 duration-300 h-full flex flex-col pt-3">
+              <div className="flex-1 px-4 flex flex-col gap-3">
+                {/* Incoming shared reel */}
+                <div className="flex justify-end">
+                  <div className="bg-blue-600/20 text-white px-3 py-2 rounded-2xl rounded-tr-none text-[9px] max-w-[85%]">
+                    <div className="flex items-center gap-1.5 mb-1.5 opacity-60">
+                      <Share2 size={8} />
+                      <span className="text-[8px]">Shared a reel</span>
+                    </div>
+                    <div className="bg-[#1a1a2e] rounded-lg p-2 border border-white/10">
+                      <div className="h-[60px] bg-gradient-to-br from-purple-600/30 to-pink-500/30 rounded flex items-center justify-center">
+                        <span className="text-[16px]">▶</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Category match indicator */}
+                {previewCategory && (
+                  <div className="flex justify-center">
+                    <span className="text-[7px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold">
+                      Matched: {previewCategory.name}
+                    </span>
+                  </div>
+                )}
+
+                {/* Auto-reply */}
+                <div className="flex flex-col gap-1 items-start">
+                  <div className="bg-[#222] text-white p-3 rounded-2xl rounded-tl-none max-w-[85%] text-[9px] leading-relaxed">
+                    {previewCategory
+                      ? (previewCategory.reply?.message || reelShareMessage || "Hey! 👋 Thanks for sharing!")
+                      : (reelShareMessage || "Hey! 👋 Thanks for sharing!")}
+                    <button className="w-full mt-3 py-2 bg-[#333] rounded-lg font-bold border border-white/10 uppercase tracking-tighter text-[8px]">
+                      {previewCategory
+                        ? (previewCategory.reply?.buttonText || reelShareButtonText || "Check it out 🚀")
+                        : (reelShareButtonText || "Check it out 🚀")}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 items-start">
+                  <div className="bg-[#222] text-white px-3 py-2 rounded-2xl rounded-tl-none text-[9px] text-blue-400 underline font-medium">
+                    {previewCategory
+                      ? (previewCategory.reply?.linkUrl || reelShareLinkUrl || "yourlink.com")
+                      : (reelShareLinkUrl || "yourlink.com")}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quick Tabs */}
         <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-1.5 p-1 rounded-full bg-black/80 backdrop-blur-md">
-          {['Post', 'Comments', 'DM'].map(t => (
+          {tabs.map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}

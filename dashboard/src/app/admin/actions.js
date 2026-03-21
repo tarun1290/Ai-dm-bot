@@ -6,6 +6,10 @@ import { revalidatePath } from "next/cache";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 import Event from "@/models/Event";
+import InstagramAccount from "@/models/InstagramAccount";
+import TrackedLink from "@/models/TrackedLink";
+import ClickEvent from "@/models/ClickEvent";
+import ProductDetection from "@/models/ProductDetection";
 
 export async function adminLogin(formData) {
   const key = formData.get("key");
@@ -40,6 +44,17 @@ export async function deleteUser(userId) {
     if (user?.instagramBusinessId) {
       await Event.deleteMany({ targetBusinessId: user.instagramBusinessId });
     }
+
+    // Cascade delete AI/tracking data
+    const userLinks = await TrackedLink.find({ userId }).select("_id").lean();
+    const linkIds = userLinks.map(l => l._id);
+    if (linkIds.length > 0) {
+      await ClickEvent.deleteMany({ trackedLinkId: { $in: linkIds } });
+    }
+    await TrackedLink.deleteMany({ userId });
+    await ProductDetection.deleteMany({ userId });
+    await InstagramAccount.deleteMany({ userId });
+
     await User.deleteOne({ userId });
 
     // Invalidate cached page so the table refreshes with fresh data
@@ -117,6 +132,11 @@ export async function getAdminStats() {
     }
   }
 
+  // AI-enabled account stats
+  const aiEnabledUsers = await User.countDocuments({ "flags.aiProductDetectionUnlocked": true });
+  const totalAiDetections = await ProductDetection.countDocuments();
+  const totalTrackedLinks = await TrackedLink.countDocuments();
+
   return {
     totalUsers,
     connectedUsers,
@@ -130,6 +150,9 @@ export async function getAdminStats() {
     planBreakdown: JSON.parse(JSON.stringify(planBreakdown)),
     activeSubscribers,
     mrr,
+    aiEnabledUsers,
+    totalAiDetections,
+    totalTrackedLinks,
   };
 }
 
@@ -198,4 +221,234 @@ export async function adminExtendTrial(userId, days) {
 
   revalidatePath("/admin/dashboard");
   return { success: true };
+}
+
+// ── Admin: Enable AI Product Detection for a user ───────────────────────
+export async function adminEnableAi(userId, notes) {
+  const cookieStore = await cookies();
+  const adminSession = cookieStore.get("admin_session")?.value;
+  if (adminSession !== process.env.ADMIN_KEY) return { error: "Unauthorized" };
+
+  await dbConnect();
+  const user = await User.findOne({ userId });
+  if (!user) return { error: "User not found" };
+
+  // Set user-level flag
+  await User.findOneAndUpdate({ userId }, {
+    "flags.aiProductDetectionUnlocked": true,
+  });
+
+  // Enable on ALL connected InstagramAccounts
+  await InstagramAccount.updateMany(
+    { userId },
+    {
+      "aiFeature.enabled": true,
+      "aiFeature.enabledBy": "admin",
+      "aiFeature.enabledAt": new Date(),
+      "aiFeature.notes": notes || "Enabled by admin",
+    }
+  );
+
+  console.log(`[Admin] AI detection enabled for user ${userId}`);
+  revalidatePath("/admin/dashboard");
+  return { success: true };
+}
+
+// ── Admin: Disable AI Product Detection for a user ──────────────────────
+export async function adminDisableAi(userId) {
+  const cookieStore = await cookies();
+  const adminSession = cookieStore.get("admin_session")?.value;
+  if (adminSession !== process.env.ADMIN_KEY) return { error: "Unauthorized" };
+
+  await dbConnect();
+
+  await User.findOneAndUpdate({ userId }, {
+    "flags.aiProductDetectionUnlocked": false,
+  });
+
+  await InstagramAccount.updateMany(
+    { userId },
+    {
+      "aiFeature.enabled": false,
+      "aiFeature.disabledAt": new Date(),
+    }
+  );
+
+  console.log(`[Admin] AI detection disabled for user ${userId}`);
+  revalidatePath("/admin/dashboard");
+  return { success: true };
+}
+
+// ── Admin: Bulk enable AI for multiple users ────────────────────────────
+export async function adminBulkEnableAi(userIds, notes) {
+  const cookieStore = await cookies();
+  const adminSession = cookieStore.get("admin_session")?.value;
+  if (adminSession !== process.env.ADMIN_KEY) return { error: "Unauthorized" };
+
+  if (!Array.isArray(userIds) || userIds.length === 0) return { error: "No users selected" };
+
+  await dbConnect();
+
+  await User.updateMany(
+    { userId: { $in: userIds } },
+    { "flags.aiProductDetectionUnlocked": true }
+  );
+
+  await InstagramAccount.updateMany(
+    { userId: { $in: userIds } },
+    {
+      "aiFeature.enabled": true,
+      "aiFeature.enabledBy": "admin-bulk",
+      "aiFeature.enabledAt": new Date(),
+      "aiFeature.notes": notes || "Bulk enabled by admin",
+    }
+  );
+
+  console.log(`[Admin] AI detection bulk-enabled for ${userIds.length} users`);
+  revalidatePath("/admin/dashboard");
+  return { success: true, count: userIds.length };
+}
+
+// ── Admin: AI Analytics ────────────────────────────────────────────────
+
+export async function adminGetAiAnalytics() {
+  const cookieStore = await cookies();
+  const adminSession = cookieStore.get("admin_session")?.value;
+  if (adminSession !== process.env.ADMIN_KEY) return { error: "Unauthorized" };
+
+  await dbConnect();
+
+  const totalLinks = await TrackedLink.countDocuments();
+  const totalDetections = await ProductDetection.countDocuments();
+  const successfulDetections = await ProductDetection.countDocuments({ status: "success" });
+  const failedDetections = await ProductDetection.countDocuments({ status: { $in: ["failed", "api_error"] } });
+
+  // Total clicks
+  const allLinks = await TrackedLink.find().select("stats.totalClicks stats.uniqueClicks").lean();
+  let totalClicks = 0, totalUnique = 0;
+  for (const l of allLinks) {
+    totalClicks += l.stats?.totalClicks || 0;
+    totalUnique += l.stats?.uniqueClicks || 0;
+  }
+
+  // Clicks today
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const clicksToday = await ClickEvent.countDocuments({ timestamp: { $gte: startOfDay } });
+
+  // AI cost this month
+  const costAgg = await User.aggregate([
+    { $match: { "flags.aiProductDetectionUnlocked": true } },
+    { $group: { _id: null, totalCost: { $sum: "$usage.aiCostThisMonth" }, totalDetections: { $sum: "$usage.aiDetectionsThisMonth" } } },
+  ]);
+  const aiCostThisMonth = costAgg[0]?.totalCost || 0;
+  const detectionsThisMonth = costAgg[0]?.totalDetections || 0;
+
+  // Detection success rate
+  const successRate = totalDetections > 0 ? Math.round((successfulDetections / totalDetections) * 100) : 0;
+
+  // Top products
+  const topProducts = await ProductDetection.aggregate([
+    { $match: { status: "success" } },
+    { $unwind: "$detectedProducts" },
+    {
+      $group: {
+        _id: "$detectedProducts.name",
+        category: { $first: "$detectedProducts.category" },
+        count: { $sum: 1 },
+        uniqueUsers: { $addToSet: "$userId" },
+      },
+    },
+    { $addFields: { userCount: { $size: "$uniqueUsers" } } },
+    { $sort: { count: -1 } },
+    { $limit: 20 },
+    { $project: { uniqueUsers: 0 } },
+  ]);
+
+  // Top links by clicks
+  const topLinks = await TrackedLink.find()
+    .sort({ "stats.totalClicks": -1 })
+    .limit(20)
+    .lean();
+
+  // Category breakdown
+  const categoryBreakdown = await ProductDetection.aggregate([
+    { $match: { status: "success" } },
+    { $unwind: "$detectedProducts" },
+    { $group: { _id: "$detectedProducts.category", count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+  ]);
+
+  // Click geography (top 10 countries)
+  const clickGeo = await ClickEvent.aggregate([
+    { $match: { country: { $exists: true, $ne: "Unknown" } } },
+    { $group: { _id: "$country", clicks: { $sum: 1 } } },
+    { $sort: { clicks: -1 } },
+    { $limit: 10 },
+  ]);
+
+  // Device breakdown
+  const deviceBreakdown = await ClickEvent.aggregate([
+    { $group: { _id: "$device", clicks: { $sum: 1 } } },
+    { $sort: { clicks: -1 } },
+  ]);
+
+  // Recent detections log (last 20)
+  const recentDetections = await ProductDetection.find()
+    .sort({ createdAt: -1 })
+    .limit(20)
+    .lean();
+
+  // Per-user AI stats
+  const aiUsers = await User.find({ "flags.aiProductDetectionUnlocked": true })
+    .select("userId email instagramUsername usage.aiDetectionsThisMonth usage.aiDetectionsTotal usage.aiCostThisMonth")
+    .lean();
+
+  // Get link counts and click counts per AI user
+  const userAiStats = [];
+  for (const u of aiUsers) {
+    const linksCount = await TrackedLink.countDocuments({ userId: u.userId });
+    const userLinks = await TrackedLink.find({ userId: u.userId }).select("stats.totalClicks").lean();
+    let userClicks = 0;
+    for (const l of userLinks) userClicks += l.stats?.totalClicks || 0;
+    userAiStats.push({
+      userId: u.userId,
+      email: u.email,
+      username: u.instagramUsername,
+      detections: u.usage?.aiDetectionsThisMonth || 0,
+      detectionsTotal: u.usage?.aiDetectionsTotal || 0,
+      cost: u.usage?.aiCostThisMonth || 0,
+      links: linksCount,
+      clicks: userClicks,
+    });
+  }
+
+  // Revenue potential estimate
+  const avgCommission = 0.03;
+  const avgProductPrice = 25;
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const clicksThisMonth = await ClickEvent.countDocuments({ timestamp: { $gte: startOfMonth } });
+  const estimatedRevenue = Math.round(clicksThisMonth * avgCommission * avgProductPrice * 100) / 100;
+
+  return {
+    totalLinks,
+    totalClicks,
+    totalUnique,
+    clicksToday,
+    totalDetections,
+    detectionsThisMonth,
+    successRate,
+    aiCostThisMonth: Math.round(aiCostThisMonth * 1000) / 1000,
+    topProducts: JSON.parse(JSON.stringify(topProducts)),
+    topLinks: JSON.parse(JSON.stringify(topLinks)),
+    categoryBreakdown: JSON.parse(JSON.stringify(categoryBreakdown)),
+    clickGeo: JSON.parse(JSON.stringify(clickGeo)),
+    deviceBreakdown: JSON.parse(JSON.stringify(deviceBreakdown)),
+    recentDetections: JSON.parse(JSON.stringify(recentDetections)),
+    userAiStats: JSON.parse(JSON.stringify(userAiStats)),
+    clicksThisMonth,
+    estimatedRevenue,
+  };
 }

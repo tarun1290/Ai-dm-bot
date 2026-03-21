@@ -25,17 +25,28 @@ import {
   AlertTriangle,
   Image,
   Trash2,
+  Link2,
+  Brain,
+  ShoppingBag,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Automation from "@/components/Automation";
 import Settings from "@/components/Settings";
 import Contacts from "@/components/Contacts";
 import Activity from "@/components/Activity";
+import LinksPage from "@/components/LinksPage";
+import ComingSoonPage from "@/components/ComingSoonPage";
+// [SMART FEATURES] Knowledge Base and Conversations pages — uncomment when enabled
+// import KnowledgeBasePage from "@/components/KnowledgeBasePage";
+// import ConversationsPage from "@/components/ConversationsPage";
+// [/SMART FEATURES]
 // [PLANS DISABLED] BillingPage, UpgradePrompt, and gating imports removed for Early Access
 // import BillingPage from "@/components/BillingPage";
 // import UpgradePrompt from "@/components/UpgradePrompt";
 // [/PLANS DISABLED]
 import { getDashboardStats, deleteAutomation, toggleAutomation } from './actions';
+import { getAiDetectionStats, getTopPerformingLinks, getRecentDetections } from './ai-actions';
 // [PLANS DISABLED] Subscription/gating imports not needed
 // import { getSubscriptionStatus } from './billing-actions';
 // import { getTrialWarning, getDmQuotaWarning, canAccessPage } from '@/lib/gating';
@@ -250,16 +261,29 @@ function DashboardContent() {
     transmissionTrend: 0,
     totalInteractions: 0,
     interactionsByType: [],
+    reelCategoryBreakdown: [],
     recentInteractions: [],
   });
+  const [aiStats, setAiStats] = useState(null);
+  const [topLinks, setTopLinks] = useState([]);
+  const [recentDetections, setRecentDetections] = useState([]);
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const data = await getDashboardStats(selectedAccountId);
-        // [PLANS DISABLED] const sub = await getSubscriptionStatus();
-        // if (sub.success) setSubData(sub);
         setStats(data);
+        // Load AI stats only if feature is enabled (completely hidden otherwise)
+        if (data.aiFeatureEnabled) {
+          const [aiRes, linksRes, detectRes] = await Promise.all([
+            getAiDetectionStats(selectedAccountId),
+            getTopPerformingLinks(selectedAccountId, 5),
+            getRecentDetections(selectedAccountId, 5),
+          ]);
+          if (aiRes.success) setAiStats(aiRes);
+          if (linksRes.success) setTopLinks(linksRes.links);
+          if (detectRes.success) setRecentDetections(detectRes.detections);
+        }
       } catch (error) {
         console.error("Failed to fetch dashboard stats:", error);
       } finally {
@@ -312,9 +336,9 @@ function DashboardContent() {
   const renderContent = () => {
     switch (activeTab) {
       case "Contacts":
-        return <Contacts />;
+        return <Contacts aiEnabled={stats.aiFeatureEnabled} />;
       case "Activity":
-        return <Activity />;
+        return <Activity aiEnabled={stats.aiFeatureEnabled} />;
       // [PLANS DISABLED] Billing, Analytics, API Keys tabs removed from sidebar
       // case "Billing":
       //   return <BillingPage onNavigate={setActiveTab} />;
@@ -658,6 +682,116 @@ function DashboardContent() {
               </section>
             )}
 
+            {/* Reel Category Breakdown */}
+            {stats.reelCategoryBreakdown?.length > 0 && (
+              <section>
+                <h3 className="text-2xl font-black mb-6" style={{ color: 'var(--text-primary)' }}>Smart Reel Replies</h3>
+                <div className="flex flex-wrap gap-3">
+                  {stats.reelCategoryBreakdown.map((item) => {
+                    const isCategory = item._id === 'category';
+                    const label = isCategory ? (item.categoryName || 'Category') : item._id === 'default' ? 'Default' : 'Legacy';
+                    const color = isCategory ? 'var(--info)' : item._id === 'default' ? 'var(--accent)' : 'var(--text-muted)';
+                    const bg = isCategory ? 'var(--info-light)' : item._id === 'default' ? 'var(--accent-light)' : 'var(--surface-alt)';
+                    return (
+                      <div key={item._id} className="flex items-center gap-3 px-5 py-3 rounded-2xl"
+                        style={{ backgroundColor: bg, border: `1px solid ${color}20` }}
+                      >
+                        <Play size={16} style={{ color }} />
+                        <span className="text-xl font-black" style={{ color: 'var(--text-primary)' }}>{item.count}</span>
+                        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color }}>{label}</span>
+                        {item.sent > 0 && (
+                          <span className="text-[10px] font-bold" style={{ color: 'var(--success)' }}>
+                            ({item.sent} sent)
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* AI Product Detection stats — only visible if admin-enabled */}
+            {stats.aiFeatureEnabled && aiStats && (
+              <section>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>AI Product Detection</h3>
+                  <button onClick={() => setActiveTab("Links")} className="flex items-center gap-1 text-[12px] font-bold" style={{ color: 'var(--primary)' }}>
+                    View all links <ChevronRight size={12} />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  <div className="p-5 rounded-2xl" style={{ backgroundColor: 'var(--info-light)', border: '1px solid var(--info)' }}>
+                    <Brain size={16} style={{ color: 'var(--info)' }} />
+                    <p className="text-2xl font-black mt-2" style={{ color: 'var(--text-primary)' }}>{aiStats.detectionsThisMonth}</p>
+                    <p className="text-[11px] font-bold" style={{ color: 'var(--info)' }}>Detections this month</p>
+                  </div>
+                  <div className="p-5 rounded-2xl" style={{ backgroundColor: 'var(--success-light)', border: '1px solid var(--success)' }}>
+                    <Link2 size={16} style={{ color: 'var(--success)' }} />
+                    <p className="text-2xl font-black mt-2" style={{ color: 'var(--text-primary)' }}>{aiStats.linksCreated}</p>
+                    <p className="text-[11px] font-bold" style={{ color: 'var(--success)' }}>Links generated</p>
+                  </div>
+                  <div className="p-5 rounded-2xl" style={{ backgroundColor: 'var(--primary-light)', border: '1px solid var(--primary-medium)' }}>
+                    <MousePointer2 size={16} style={{ color: 'var(--primary)' }} />
+                    <p className="text-2xl font-black mt-2" style={{ color: 'var(--text-primary)' }}>{aiStats.clicksToday}</p>
+                    <p className="text-[11px] font-bold" style={{ color: 'var(--primary)' }}>Link clicks today</p>
+                  </div>
+                  <div className="p-5 rounded-2xl" style={{ backgroundColor: 'var(--accent-light)', border: '1px solid var(--accent)' }}>
+                    <Eye size={16} style={{ color: 'var(--accent)' }} />
+                    <p className="text-2xl font-black mt-2" style={{ color: 'var(--text-primary)' }}>{aiStats.successfulDetections}</p>
+                    <p className="text-[11px] font-bold" style={{ color: 'var(--accent)' }}>Products identified</p>
+                  </div>
+                </div>
+
+                {/* Top performing links */}
+                {topLinks.length > 0 && (
+                  <div className="rounded-2xl p-6 mb-4" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                    <h4 className="text-[11px] font-black uppercase tracking-widest mb-4" style={{ color: 'var(--text-placeholder)' }}>Top Links by Clicks</h4>
+                    <div className="space-y-3">
+                      {topLinks.map((link) => (
+                        <div key={link._id} className="flex items-center gap-3">
+                          {link.metadata?.productImageUrl ? (
+                            <img src={link.metadata.productImageUrl} alt="" className="w-8 h-8 rounded-lg object-cover" style={{ border: '1px solid var(--border)' }} />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--surface-alt)' }}>
+                              <ShoppingBag size={12} style={{ color: 'var(--text-placeholder)' }} />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] font-bold truncate" style={{ color: 'var(--text-primary)' }}>{link.metadata?.productName || "Link"}</p>
+                          </div>
+                          <span className="text-sm font-black" style={{ color: 'var(--primary)' }}>{link.stats?.totalClicks || 0}</span>
+                          <span className="text-[10px] font-medium" style={{ color: 'var(--text-muted)' }}>clicks</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent detections */}
+                {recentDetections.length > 0 && (
+                  <div className="rounded-2xl p-6" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                    <h4 className="text-[11px] font-black uppercase tracking-widest mb-4" style={{ color: 'var(--text-placeholder)' }}>Recent AI Detections</h4>
+                    <div className="space-y-3">
+                      {recentDetections.map((d) => (
+                        <div key={d._id} className="flex items-center gap-3 text-[12px]">
+                          <div className={`w-2 h-2 rounded-full ${d.status === 'success' ? '' : ''}`}
+                            style={{ backgroundColor: d.status === 'success' ? 'var(--success)' : 'var(--error)' }} />
+                          <span className="font-bold flex-1 truncate" style={{ color: 'var(--text-primary)' }}>
+                            {d.detectedProducts?.[0]?.name || (d.status === 'success' ? 'Product detected' : 'No product found')}
+                          </span>
+                          {d.detectedProducts?.[0]?.confidence && (
+                            <span className="font-bold" style={{ color: 'var(--success)' }}>{Math.round(d.detectedProducts[0].confidence * 100)}%</span>
+                          )}
+                          <span style={{ color: 'var(--text-placeholder)' }}>{new Date(d.createdAt).toLocaleDateString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
             {/* Interactions Feed */}
             <section id="interactions-section">
               <div className="flex items-center justify-between mb-6">
@@ -698,13 +832,67 @@ function DashboardContent() {
                 )}
               </div>
             </section>
+
+            {/* Coming Soon teasers */}
+            <section>
+              <div className="flex items-center gap-2 mb-6">
+                <Zap size={18} style={{ color: 'var(--primary)' }} />
+                <h3 className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>Coming soon</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { slug: "ai-product-detection", title: "AI Product Detection", desc: "AI identifies products in shared reels", icon: Zap, status: "Q2 2026" },
+                  { slug: "shopify", title: "Shopify Integration", desc: "Sell your products directly in DMs", icon: Share2, status: "Q2 2026" },
+                  { slug: "smart-replies", title: "AI Smart Replies", desc: "24/7 AI customer support", icon: MessageSquare, status: "Q3 2026" },
+                  { slug: "knowledge-base", title: "Knowledge Base", desc: "Train AI with your business docs", icon: Play, status: "Q3 2026" },
+                ].map((item) => {
+                  const TeaserIcon = item.icon;
+                  return (
+                    <button
+                      key={item.slug}
+                      onClick={() => setActiveTab(`coming-soon:${item.slug}`)}
+                      className="text-left p-5 rounded-2xl transition-all hover:scale-[1.02] group"
+                      style={{
+                        backgroundColor: 'var(--card)',
+                        border: '1px solid var(--border)',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--primary-medium)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <TeaserIcon size={14} style={{ color: 'var(--primary)' }} />
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                          style={{ backgroundColor: 'rgba(124, 58, 237, 0.12)', color: '#7C3AED' }}>
+                          {item.status}
+                        </span>
+                      </div>
+                      <p className="text-[13px] font-black mb-1" style={{ color: 'var(--text-primary)' }}>{item.title}</p>
+                      <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{item.desc}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
           </div>
         );
+      case "Links":
+        return stats.aiFeatureEnabled ? <LinksPage /> : null;
+      // [SMART FEATURES] Knowledge Base and Conversations tabs — uncomment when enabled
+      // case "Knowledge":
+      //   return stats.smartFeaturesEnabled?.knowledgeBase ? <KnowledgeBasePage /> : null;
+      // case "Conversations":
+      //   return stats.smartFeaturesEnabled?.smartReplies ? <ConversationsPage /> : null;
+      // [/SMART FEATURES]
       case "Automation":
-        return <Automation />;
+        return <Automation aiEnabled={stats.aiFeatureEnabled} />;
       case "Settings":
         return <Settings stats={stats} />;
       default:
+        // Handle coming-soon:featureSlug tabs from beta sidebar items
+        if (activeTab.startsWith("coming-soon:")) {
+          const slug = activeTab.replace("coming-soon:", "");
+          return <ComingSoonPage feature={slug} />;
+        }
         return null;
     }
   };
@@ -716,6 +904,8 @@ function DashboardContent() {
         setIsCollapsed={setIsCollapsed}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        aiEnabled={stats.aiFeatureEnabled}
+        smartFeatures={stats.smartFeaturesEnabled}
       />
 
       <main className={cn(

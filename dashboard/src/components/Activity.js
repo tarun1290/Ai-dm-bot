@@ -23,7 +23,8 @@ const REPLY_STATUS_CONFIG = {
   failed:        { label: "Failed",   icon: XCircle,      color: 'var(--error)',        bg: 'var(--error-light)',   border: 'var(--border)' },
   fallback:      { label: "Fallback", icon: RefreshCw,    color: 'var(--warning)',      bg: 'var(--warning-light)', border: 'var(--border)' },
   skipped:       { label: "Skipped",  icon: SkipForward,  color: 'var(--text-muted)',   bg: 'var(--surface-alt)',   border: 'var(--border)' },
-  token_expired: { label: "Expired",  icon: XCircle,      color: 'var(--warning-dark)', bg: 'var(--warning-light)', border: 'var(--border)' },
+  token_expired:  { label: "Expired",  icon: XCircle,      color: 'var(--warning-dark)', bg: 'var(--warning-light)', border: 'var(--border)' },
+  quota_exceeded: { label: "Quota",    icon: XCircle,      color: 'var(--error)',        bg: 'var(--error-light)',   border: 'var(--border)' },
 };
 
 const FILTERS = [
@@ -155,6 +156,19 @@ function EventRow({ event }) {
             <span className="font-bold">DM sent:</span> {event.reply.dmText}
           </p>
         )}
+        {event.type === 'reel_share' && event.metadata?.categoryRuleName && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
+              style={{ backgroundColor: 'var(--info-light)', color: 'var(--info)', border: '1px solid var(--info)' }}>
+              {event.metadata.categoryRuleName}
+            </span>
+            {event.content?.reelOwnerUsername && (
+              <span className="text-[10px]" style={{ color: 'var(--text-placeholder)' }}>
+                from @{event.content.reelOwnerUsername}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Reply status */}
@@ -175,15 +189,22 @@ function EventRow({ event }) {
   );
 }
 
-export default function Activity() {
+export default function Activity({ aiEnabled = false }) {
   const [activeFilter, setActiveFilter] = useState('all');
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    getAllInteractions(activeFilter === 'all' ? null : activeFilter)
-      .then(setEvents)
+    const serverFilter = activeFilter === 'all' ? null : activeFilter === 'ai_detection' ? 'reel_share' : activeFilter;
+    getAllInteractions(serverFilter)
+      .then((data) => {
+        if (activeFilter === 'ai_detection') {
+          setEvents(data.filter(e => e.metadata?.matchType === 'ai_detection'));
+        } else {
+          setEvents(data);
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [activeFilter]);
@@ -226,7 +247,7 @@ export default function Activity() {
       {/* Filter tabs */}
       <div className="flex items-center gap-1 rounded-2xl p-1.5 flex-wrap" style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)' }}>
         <Filter size={13} className="ml-2 mr-1" style={{ color: 'var(--text-placeholder)' }} />
-        {FILTERS.map((f) => (
+        {[...FILTERS, ...(aiEnabled ? [{ key: 'ai_detection', label: 'AI Detection' }] : [])].map((f) => (
           <button
             key={f.key}
             onClick={() => setActiveFilter(f.key)}

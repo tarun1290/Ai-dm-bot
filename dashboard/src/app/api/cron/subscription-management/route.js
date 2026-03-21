@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
+// [SMART FEATURES] Uncomment these imports when smart features are enabled
+// import ShopifyStore from "@/models/ShopifyStore";
+// import KnowledgeDocument from "@/models/KnowledgeDocument";
+// import ConversationThread from "@/models/ConversationThread";
+// import { syncShopifyProducts } from "@/lib/shopify/sync";
+// import { refreshUrlDocument } from "@/lib/knowledge/processor";
+// [/SMART FEATURES]
 
 // GET /api/cron/subscription-management
 // Runs daily via Vercel Cron. Handles:
@@ -87,6 +94,9 @@ export async function GET(request) {
         "usage.dmsSentThisMonth": 0,
         "usage.monthlyResetDate": nextReset,
         "usage.lastResetAt": now,
+        // Reset AI usage counters monthly
+        "usage.aiDetectionsThisMonth": 0,
+        "usage.aiCostThisMonth": 0,
         // Do NOT touch topUpDmsRemaining — carries over
       });
       results.usageReset++;
@@ -116,6 +126,44 @@ export async function GET(request) {
   //   results.errors.push({ task: "periodEndCancellation", error: err.message });
   // }
   // [/PAYMENTS DISABLED]
+
+  // [SMART FEATURES] Shopify sync, knowledge refresh, and thread cleanup — uncomment when enabled
+  // ── 5. Shopify product sync (daily) ──────────────────────────────────────
+  // try {
+  //   const stores = await ShopifyStore.find({ isConnected: true }).lean();
+  //   for (const store of stores) {
+  //     try {
+  //       await syncShopifyProducts(store._id.toString());
+  //     } catch (e) {
+  //       console.error(`[Cron] Shopify sync failed for ${store.shopDomain}:`, e.message);
+  //     }
+  //   }
+  // } catch (err) {
+  //   results.errors.push({ task: "shopifySync", error: err.message });
+  // }
+  //
+  // ── 6. Knowledge URL refresh (weekly — run on Sundays) ────────────────
+  // if (now.getDay() === 0) {
+  //   try {
+  //     const urlDocs = await KnowledgeDocument.find({ fileType: "url", status: "ready" }).lean();
+  //     for (const doc of urlDocs) {
+  //       try { await refreshUrlDocument(doc._id.toString()); } catch (e) { console.error(`[Cron] Knowledge refresh failed:`, e.message); }
+  //     }
+  //   } catch (err) {
+  //     results.errors.push({ task: "knowledgeRefresh", error: err.message });
+  //   }
+  // }
+  //
+  // ── 7. Conversation thread cleanup ────────────────────────────────────
+  // try {
+  //   const expired = await ConversationThread.updateMany(
+  //     { expiresAt: { $lt: now }, status: "active" },
+  //     { $set: { status: "closed", updatedAt: now } }
+  //   );
+  // } catch (err) {
+  //   results.errors.push({ task: "threadCleanup", error: err.message });
+  // }
+  // [/SMART FEATURES]
 
   console.log(`[Cron] Subscription management done:`, results);
 

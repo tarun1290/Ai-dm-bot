@@ -35,6 +35,87 @@ const InstagramAccountSchema = new mongoose.Schema({
     reelShareMessage: { type: String, default: "Hey! 👋 Thanks for sharing!" },
     reelShareLinkUrl: { type: String },
     reelShareButtonText: { type: String, default: "Check it out 🚀" },
+
+    // Smart Reel Replies — category-based auto-reply rules
+    reelCategories: {
+      type: [{
+        name: { type: String, required: true },
+        enabled: { type: Boolean, default: true },
+        priority: { type: Number, default: 0 },
+        detection: {
+          keywords: { type: [String], default: [] },
+          hashtags: { type: [String], default: [] },
+          accountUsernames: { type: [String], default: [] },
+          specificReelIds: { type: [String], default: [] },
+        },
+        matchMode: { type: String, enum: ["any", "all"], default: "any" },
+        reply: {
+          message: { type: String, default: "" },
+          linkUrl: { type: String, default: "" },
+          buttonText: { type: String, default: "Check it out 🚀" },
+        },
+        stats: {
+          totalMatches: { type: Number, default: 0 },
+          totalRepliesSent: { type: Number, default: 0 },
+          lastMatchedAt: { type: Date },
+        },
+        createdAt: { type: Date, default: Date.now },
+      }],
+      default: [],
+      validate: [arr => arr.length <= 5, "Maximum 5 reel categories allowed"],
+    },
+    reelShareDefaultReply: {
+      enabled: { type: Boolean, default: true },
+      message: { type: String, default: "" },
+      linkUrl: { type: String, default: "" },
+      buttonText: { type: String, default: "Check it out 🚀" },
+    },
+
+    // Smart Reply config (admin-gated, hidden feature)
+    smartReplyConfig: {
+      enabled: { type: Boolean, default: false },
+      tone: { type: String, enum: ["friendly", "professional", "casual"], default: "friendly" },
+      businessDescription: { type: String },
+      autoReplyToAllDMs: { type: Boolean, default: false },
+      excludeKeywords: { type: [String], default: [] },
+      maxRepliesPerThread: { type: Number, default: 20 },
+      workingHoursOnly: { type: Boolean, default: false },
+      workingHours: {
+        start: { type: String, default: "09:00" },
+        end: { type: String, default: "18:00" },
+        timezone: { type: String, default: "Asia/Kolkata" },
+      },
+    },
+
+    // AI Product Detection (admin-gated, hidden feature)
+    aiProductDetection: {
+      enabled: { type: Boolean, default: false },
+      provider: { type: String },
+      replyTemplate: { type: String, default: "I found this! {{productName}} — check it out here:" },
+      linkButtonLabel: { type: String, default: "Shop Now" },
+      fallbackToDefault: { type: Boolean, default: true },
+      detectOnlyCategories: { type: [String], default: [] },
+    },
+  },
+
+  // Smart Features — admin-gated access control (hidden from regular users)
+  smartFeatures: {
+    shopifyConnected: { type: Boolean, default: false },
+    knowledgeBaseActive: { type: Boolean, default: false },
+    smartRepliesActive: { type: Boolean, default: false },
+    enabledBy: { type: String },
+    enabledAt: { type: Date },
+    disabledAt: { type: Date },
+    notes: { type: String },
+  },
+
+  // AI Feature — admin-gated access control (hidden from regular users)
+  aiFeature: {
+    enabled: { type: Boolean, default: false },
+    enabledBy: { type: String },
+    enabledAt: { type: Date },
+    disabledAt: { type: Date },
+    notes: { type: String },
   },
 
   createdAt: { type: Date, default: Date.now },

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Instagram, Trash2, ShieldOff, AlertTriangle, CheckCircle2, ExternalLink, User, Mail, AtSign } from "lucide-react";
+import { Instagram, Trash2, ShieldOff, AlertTriangle, CheckCircle2, ExternalLink, User, Mail, AtSign, Brain, ShoppingBag, CreditCard } from "lucide-react";
 import { deauthorizeInstagram, deleteAccountData } from "@/app/settings/actions";
 import ManageAccounts from "./ManageAccounts";
 
@@ -260,6 +260,73 @@ export default function Settings({ stats }) {
           </button>
         </div>
       </SectionCard>
+
+      {/* AI Settings — admin-gated, completely hidden if not enabled */}
+      {stats?.aiFeatureEnabled && (
+        <SectionCard title="AI Product Detection" description="AI-powered product identification for shared reels" icon={Brain} iconColor="#7c3aed">
+          <div className="px-8 py-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-bold" style={{ color: 'var(--text-primary)' }}>AI Provider</span>
+              <span className="text-[13px] font-medium px-3 py-1 rounded-full" style={{ backgroundColor: 'var(--surface-alt)', color: 'var(--text-muted)' }}>
+                {(process.env.NEXT_PUBLIC_AI_PROVIDER || 'claude').toUpperCase()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-bold" style={{ color: 'var(--text-primary)' }}>Detections this month</span>
+              <span className="text-[13px] font-black" style={{ color: 'var(--primary)' }}>
+                {stats?.usage?.aiDetectionsThisMonth || 0}
+              </span>
+            </div>
+            <div className="p-4 rounded-xl" style={{ backgroundColor: 'var(--surface-alt)' }}>
+              <p className="text-[12px] font-bold mb-1" style={{ color: 'var(--text-muted)' }}>Affiliate Links</p>
+              <p className="text-[11px]" style={{ color: 'var(--text-placeholder)' }}>
+                Coming soon. Currently, all links use direct product search URLs. You can override any link with your own URL from the Links page.
+              </p>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Beta feature teasers */}
+      <div className="rounded-[24px] overflow-hidden theme-transition" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+        <div className="px-8 py-6 flex items-center gap-4" style={{ borderBottom: '1px solid var(--surface-alt)' }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+            style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)', color: 'var(--text-placeholder)' }}>
+            <ShoppingBag size={18} />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-black" style={{ color: 'var(--text-primary)' }}>Shopify Integration</h3>
+              <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                style={{ backgroundColor: 'rgba(124, 58, 237, 0.12)', color: '#7C3AED' }}>Beta</span>
+            </div>
+            <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>Connect your Shopify store to sync products and enable AI-powered product recommendations in DMs</p>
+          </div>
+        </div>
+        <div className="px-8 py-4">
+          <span className="text-[12px] font-bold" style={{ color: 'var(--primary)' }}>Learn more &rarr;</span>
+        </div>
+      </div>
+
+      <div className="rounded-[24px] overflow-hidden theme-transition" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+        <div className="px-8 py-6 flex items-center gap-4" style={{ borderBottom: '1px solid var(--surface-alt)' }}>
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+            style={{ backgroundColor: 'var(--surface-alt)', border: '1px solid var(--border)', color: 'var(--text-placeholder)' }}>
+            <CreditCard size={18} />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-black" style={{ color: 'var(--text-primary)' }}>Subscription Plans</h3>
+              <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                style={{ backgroundColor: 'rgba(124, 58, 237, 0.12)', color: '#7C3AED' }}>Beta</span>
+            </div>
+            <p className="text-[13px] font-medium" style={{ color: 'var(--text-muted)' }}>Flexible plans launching soon. You&apos;re on Early Access — all features free.</p>
+          </div>
+        </div>
+        <div className="px-8 py-4">
+          <span className="text-[12px] font-bold" style={{ color: 'var(--primary)' }}>Learn more &rarr;</span>
+        </div>
+      </div>
 
       {/* Confirm Dialogs */}
       {showDeauthConfirm && (

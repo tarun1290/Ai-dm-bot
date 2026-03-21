@@ -6,6 +6,9 @@ import InstagramAccount from '@/models/InstagramAccount';
 import Event from '@/models/Event';
 import ProcessedMid from '@/models/ProcessedMid';
 import { checkDmQuota } from '@/lib/gating';
+import { matchReelToCategory } from '@/lib/reelMatcher';
+import { runProductDetection } from '@/lib/ai/detectProduct';
+// [SMART FEATURES] import { runSmartReplyPipeline } from '@/lib/smartReply/pipeline';
 
 // Business Login for Instagram uses graph.instagram.com — NOT graph.facebook.com
 // instagram_oembed is the only call that stays on graph.facebook.com
@@ -19,7 +22,7 @@ async function getMedia(id, token) {
     if (!id) return null;
     try {
         const url = new URL(`${IG_BASE}/${id}`);
-        url.searchParams.set('fields', 'id,media_type,permalink,media_url,thumbnail_url,shortcode,timestamp,username');
+        url.searchParams.set('fields', 'id,media_type,permalink,media_url,thumbnail_url,shortcode,timestamp,username,caption');
         url.searchParams.set('access_token', token);
         const res = await fetch(url.toString());
         return res.ok ? res.json() : null;
@@ -766,6 +769,10 @@ export async function POST(request) {
                         permalink = mediaUrl;
                     }
 
+                    let reelCaption = null;
+                    let reelOwnerUsername = null;
+                    let reelShortcode = null;
+
                     if (rawMediaId) {
                         const meta = await getMedia(rawMediaId, token);
                         if (meta?.permalink) permalink = meta.permalink;
@@ -774,6 +781,9 @@ export async function POST(request) {
                             if (!mediaUrl) mediaUrl = meta.media_url;
                             if (!thumbnailUrl) thumbnailUrl = meta.media_url;
                         }
+                        if (meta?.caption) reelCaption = meta.caption;
+                        if (meta?.username) reelOwnerUsername = meta.username;
+                        if (meta?.shortcode) reelShortcode = meta.shortcode;
                     }
 
                     if (!thumbnailUrl && (permalink || mediaUrl)) {
@@ -789,6 +799,13 @@ export async function POST(request) {
 
                     console.log(`[Attachment] type=${att.type} isShared=${isSharedContent} rawMediaId=${rawMediaId} url=${mediaUrl?.substring(0, 60)}`);
 
+                    // Build content object for event saving
+                    const reelContentData = {
+                        mediaId: rawMediaId, mediaUrl: permalink ? null : mediaUrl,
+                        thumbnailUrl, permalink, attachmentType, text: msgText,
+                        caption: reelCaption, reelOwnerUsername,
+                    };
+
                     if (isSharedContent) {
                         const reelShareEnabled = automation?.reelShareEnabled ?? true;
 
@@ -797,32 +814,129 @@ export async function POST(request) {
                             const reelQuota = await enforceDmQuota(botUser, accountId, igBusinessId);
                             if (!reelQuota.allowed) {
                                 await saveEvent({
-                                    type: 'reel_share',
-                                    accountId,
-                                    targetBusinessId: igBusinessId,
-                                    from: fromInfo,
-                                    content: { mediaId: rawMediaId, mediaUrl: permalink ? null : mediaUrl, thumbnailUrl, permalink, attachmentType, text: msgText },
+                                    type: 'reel_share', accountId, targetBusinessId: igBusinessId,
+                                    from: fromInfo, content: reelContentData,
                                     reply: { status: 'quota_exceeded' },
+                                    metadata: { matchType: null },
                                 });
                                 continue;
                             }
 
-                            console.log('[Shared] Post/Reel detected — sending reply');
+                            // ── Smart Reel Replies: category matching ──────────
+                            const reelData = {
+                                caption: reelCaption,
+                                ownerUsername: reelOwnerUsername,
+                                mediaId: rawMediaId,
+                                shortcode: reelShortcode,
+                                permalink,
+                            };
+                            const categoryRules = automation?.reelCategories || [];
+                            const categoryMatch = matchReelToCategory(reelData, categoryRules);
+
+                            let replyMessage, replyLinkUrl, replyButtonText;
+                            let eventMetadata = {};
+
+                            if (categoryMatch) {
+                                // Priority 1: Category rule matched
+                                const { rule, matchedCriteria } = categoryMatch;
+                                replyMessage = rule.reply?.message || automation?.reelShareMessage || "Hey! 👋 Thanks for sharing!";
+                                replyLinkUrl = rule.reply?.linkUrl || automation?.reelShareLinkUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
+                                replyButtonText = rule.reply?.buttonText || automation?.reelShareButtonText || "Check it out 🚀";
+                                eventMetadata = {
+                                    categoryRuleId: rule._id?.toString(),
+                                    categoryRuleName: rule.name,
+                                    matchedCriteria,
+                                    matchType: 'category',
+                                };
+                                console.log(`[SmartReel] Category "${rule.name}" matched (${matchedCriteria.join(', ')})`);
+                            } else if (
+                                // Priority 2: AI Product Detection (admin-gated hidden feature)
+                                automation?.aiProductDetection?.enabled
+                                && botUser?.flags?.aiProductDetectionUnlocked
+                                && igAccount?.aiFeature?.enabled
+                            ) {
+                                console.log('[AI Detection] Running AI product detection pipeline...');
+                                const aiResult = await runProductDetection({
+                                    mediaId: rawMediaId,
+                                    accessToken: token,
+                                    userId: botUser.userId,
+                                    accountId: accountId.toString(),
+                                    senderUsername: profile?.username || senderId,
+                                    aiConfig: automation.aiProductDetection,
+                                    existingFrameUrl: thumbnailUrl,
+                                    existingCaption: reelCaption,
+                                    existingPermalink: permalink,
+                                    existingOwnerUsername: reelOwnerUsername,
+                                });
+
+                                if (aiResult.success && aiResult.trackedUrl) {
+                                    replyMessage = aiResult.replyMessage;
+                                    replyLinkUrl = aiResult.trackedUrl;
+                                    replyButtonText = aiResult.buttonLabel || "Shop Now";
+                                    eventMetadata = {
+                                        matchType: 'ai_detection',
+                                        productName: aiResult.product?.name,
+                                        productCategory: aiResult.product?.category,
+                                        productBrand: aiResult.product?.brand,
+                                        confidence: aiResult.product?.confidence,
+                                        trackedLinkId: aiResult.trackedLinkId,
+                                        detectionId: aiResult.detectionId,
+                                    };
+                                    console.log(`[AI Detection] Product found: "${aiResult.product?.name}" → ${aiResult.trackedUrl}`);
+                                } else if (automation.aiProductDetection.fallbackToDefault !== false) {
+                                    // AI detection found nothing or failed — fall through to default/legacy
+                                    console.log(`[AI Detection] No product found (${aiResult.error}) — falling back`);
+                                    if (automation?.reelShareDefaultReply?.enabled !== false && automation?.reelShareDefaultReply?.message) {
+                                        const def = automation.reelShareDefaultReply;
+                                        replyMessage = def.message;
+                                        replyLinkUrl = def.linkUrl || automation?.reelShareLinkUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
+                                        replyButtonText = def.buttonText || automation?.reelShareButtonText || "Check it out 🚀";
+                                        eventMetadata = { matchType: 'default' };
+                                    } else {
+                                        replyMessage = automation?.reelShareMessage || "Hey! 👋 Thanks for sharing!";
+                                        replyLinkUrl = automation?.reelShareLinkUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
+                                        replyButtonText = automation?.reelShareButtonText || "Check it out 🚀";
+                                        eventMetadata = { matchType: 'legacy' };
+                                    }
+                                } else {
+                                    // fallbackToDefault disabled and AI found nothing — skip reply
+                                    await saveEvent({
+                                        type: 'reel_share', accountId, targetBusinessId: igBusinessId,
+                                        from: fromInfo, content: reelContentData,
+                                        reply: { status: 'skipped' },
+                                        metadata: { matchType: 'ai_detection', detectionId: aiResult.detectionId, error: aiResult.error },
+                                    });
+                                    continue;
+                                }
+                            } else if (automation?.reelShareDefaultReply?.enabled !== false && automation?.reelShareDefaultReply?.message) {
+                                // Priority 3: Default reply configured
+                                const def = automation.reelShareDefaultReply;
+                                replyMessage = def.message;
+                                replyLinkUrl = def.linkUrl || automation?.reelShareLinkUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
+                                replyButtonText = def.buttonText || automation?.reelShareButtonText || "Check it out 🚀";
+                                eventMetadata = { matchType: 'default' };
+                                console.log('[SmartReel] No category matched — using default reply');
+                            } else {
+                                // Priority 4: Legacy fallback
+                                replyMessage = automation?.reelShareMessage || "Hey! 👋 Thanks for sharing!";
+                                replyLinkUrl = automation?.reelShareLinkUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
+                                replyButtonText = automation?.reelShareButtonText || "Check it out 🚀";
+                                eventMetadata = { matchType: 'legacy' };
+                            }
+
                             const firstName = profile?.name?.split(' ')[0] || 'there';
-                            const customMessage = automation?.reelShareMessage || "Hey! 👋 Thanks for sharing!";
-                            const customLinkUrl = automation?.reelShareLinkUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
-                            const customButtonText = automation?.reelShareButtonText || "Check it out 🚀";
-                            const replyText = `${customMessage.replace('{name}', firstName)}\n\n🔗 ${customLinkUrl}`;
+                            const customMessage = replyMessage.replace('{name}', firstName);
+                            const replyText = `${customMessage}\n\n🔗 ${replyLinkUrl}`;
                             let templateSent = false;
 
                             // Generic template (image card) — works on Instagram when thumbnail available
                             if (thumbnailUrl) {
                                 try {
                                     await sendGenericTemplate(senderId, [{
-                                        title: customMessage.replace('{name}', firstName),
+                                        title: customMessage,
                                         image_url: thumbnailUrl,
                                         subtitle: 'Check out more content and updates.',
-                                        buttons: [{ type: 'web_url', url: customLinkUrl, title: customButtonText }]
+                                        buttons: [{ type: 'web_url', url: replyLinkUrl, title: replyButtonText }]
                                     }], token);
                                     console.log(`[Generic Sent] -> ${senderId}`);
                                     templateSent = true;
@@ -834,7 +948,7 @@ export async function POST(request) {
                             if (!templateSent) {
                                 try {
                                     await sendQuickReply(senderId, replyText, [
-                                        { content_type: 'text', title: customButtonText, payload: 'VISIT_SITE' },
+                                        { content_type: 'text', title: replyButtonText, payload: 'VISIT_SITE' },
                                         { content_type: 'text', title: 'Thanks! 👍', payload: 'THANKS' }
                                     ], token);
                                     console.log(`[QuickReply Sent] -> ${senderId}`);
@@ -850,23 +964,33 @@ export async function POST(request) {
 
                             if (replySentForThisMessage) {
                                 await trackDmUsage(botUser, reelQuota.source);
+                                // Update per-rule stats if category matched
+                                if (categoryMatch?.rule?._id) {
+                                    try {
+                                        await InstagramAccount.updateOne(
+                                            { _id: accountId, "automation.reelCategories._id": categoryMatch.rule._id },
+                                            {
+                                                $inc: {
+                                                    "automation.reelCategories.$.stats.totalMatches": 1,
+                                                    "automation.reelCategories.$.stats.totalRepliesSent": 1,
+                                                },
+                                                $set: { "automation.reelCategories.$.stats.lastMatchedAt": new Date() },
+                                            }
+                                        );
+                                    } catch (e) { console.error('[SmartReel] Stats update failed:', e.message); }
+                                }
                             }
                             await saveEvent({
-                                type: 'reel_share',
-                                accountId,
-                                targetBusinessId: igBusinessId,
-                                from: fromInfo,
-                                content: { mediaId: rawMediaId, mediaUrl: permalink ? null : mediaUrl, thumbnailUrl, permalink, attachmentType, text: msgText },
+                                type: 'reel_share', accountId, targetBusinessId: igBusinessId,
+                                from: fromInfo, content: reelContentData,
                                 reply: { privateDM: replyText, status: replySentForThisMessage ? 'sent' : 'failed' },
+                                metadata: eventMetadata,
                             });
                         } else {
                             // Reel share disabled — log but skip reply
                             await saveEvent({
-                                type: 'reel_share',
-                                accountId,
-                                targetBusinessId: igBusinessId,
-                                from: fromInfo,
-                                content: { mediaId: rawMediaId, mediaUrl: permalink ? null : mediaUrl, thumbnailUrl, permalink, attachmentType, text: msgText },
+                                type: 'reel_share', accountId, targetBusinessId: igBusinessId,
+                                from: fromInfo, content: reelContentData,
                                 reply: { status: 'skipped' },
                             });
                         }
@@ -886,6 +1010,20 @@ export async function POST(request) {
 
                 // Save plain text DMs (no attachments)
                 if (msgText && !attachments.length) {
+                    // [SMART FEATURES] Smart Reply Pipeline — uncomment when smart features are enabled
+                    // let smartReplyHandled = false;
+                    // if (botUser?.flags?.smartRepliesEnabled && igAccount?.smartFeatures?.smartRepliesActive
+                    //     && (igAccount?.automation?.smartReplyConfig?.enabled || igAccount?.automation?.smartReplyConfig?.autoReplyToAllDMs)) {
+                    //     try {
+                    //         const smartResult = await runSmartReplyPipeline({
+                    //             senderId, senderUsername: profile?.username || senderId, messageText: msgText, token,
+                    //             botUser, igAccount, accountId, igBusinessId, sendDM, sendGenericTemplate, saveEvent, trackDmUsage, enforceDmQuota,
+                    //         });
+                    //         smartReplyHandled = smartResult.handled;
+                    //     } catch (e) { console.error('[SmartReply] Pipeline error:', e.message); }
+                    // }
+                    // if (!smartReplyHandled) {
+                    // [/SMART FEATURES]
                     await saveEvent({
                         type: 'dm',
                         accountId,
@@ -894,6 +1032,7 @@ export async function POST(request) {
                         content: { text: msgText },
                         reply: { status: 'skipped' },
                     });
+                    // [SMART FEATURES] }
                 }
             }
 

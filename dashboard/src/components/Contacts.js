@@ -120,7 +120,7 @@ function ContactRow({ contact }) {
   );
 }
 
-export default function Contacts() {
+export default function Contacts({ aiEnabled = false }) {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');

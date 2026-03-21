@@ -10,6 +10,9 @@ import {
   ShieldCheck,
   Users2,
   Activity,
+  Link2,
+  BookOpen,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import AccountSwitcher from "./AccountSwitcher";
@@ -24,7 +27,10 @@ const MENU_ITEMS = [
   { id: "Home", label: "Home", icon: Home },
   { id: "Automation", label: "Automation", icon: Zap },
   { id: "Contacts", label: "Contacts", icon: Users2 },
+  { id: "beta:conversations", label: "Conversations", icon: MessageSquare, beta: true, betaSlug: "conversations" },
   { id: "Activity", label: "Activity", icon: Activity },
+  { id: "beta:knowledge", label: "Knowledge", icon: BookOpen, beta: true, betaSlug: "knowledge-base" },
+  { id: "beta:links", label: "Links", icon: Link2, beta: true, betaSlug: "smart-links" },
   // [PLANS DISABLED] These items are hidden during Early Access:
   // { id: "Billing", label: "Billing", icon: CreditCard },
   // { id: "Analytics", label: "Analytics", icon: BarChart3, gatedPage: "analytics" },
@@ -36,7 +42,7 @@ const BOTTOM_ITEMS = [
   { id: "Settings", label: "Settings", icon: Settings },
 ];
 
-const SidebarItem = ({ icon: Icon, label, active = false, collapsed = false, onClick }) => (
+const SidebarItem = ({ icon: Icon, label, active = false, collapsed = false, onClick, beta = false }) => (
   <div
     onClick={onClick}
     className={cn(
@@ -45,8 +51,9 @@ const SidebarItem = ({ icon: Icon, label, active = false, collapsed = false, onC
     )}
     style={{
       backgroundColor: active ? 'var(--sidebar-active-bg)' : 'transparent',
-      color: active ? 'var(--sidebar-text-active)' : 'var(--sidebar-text)',
+      color: active ? 'var(--sidebar-text-active)' : beta ? 'var(--sidebar-text)' : 'var(--sidebar-text)',
       fontWeight: active ? 600 : 400,
+      opacity: beta && !active ? 0.85 : 1,
     }}
     onMouseEnter={(e) => { if (!active) e.currentTarget.style.backgroundColor = 'var(--sidebar-hover)'; }}
     onMouseLeave={(e) => { if (!active) e.currentTarget.style.backgroundColor = 'transparent'; }}
@@ -56,12 +63,29 @@ const SidebarItem = ({ icon: Icon, label, active = false, collapsed = false, onC
       style={{ color: active ? 'var(--sidebar-icon-active)' : 'var(--sidebar-icon)' }}
     />
     {!collapsed && (
-      <span className="text-[14px] whitespace-nowrap flex-1">{label}</span>
+      <>
+        <span className="text-[14px] whitespace-nowrap flex-1">{label}</span>
+        {beta && (
+          <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+            style={{ backgroundColor: 'rgba(124, 58, 237, 0.12)', color: '#7C3AED' }}>
+            Beta
+          </span>
+        )}
+      </>
     )}
   </div>
 );
 
-export default function Sidebar({ isCollapsed, setIsCollapsed, activeTab = "Home", onTabChange }) {
+export default function Sidebar({ isCollapsed, setIsCollapsed, activeTab = "Home", onTabChange, aiEnabled = false, smartFeatures = {} }) {
+  const menuItems = [
+    ...MENU_ITEMS,
+    ...(aiEnabled ? [{ id: "Links", label: "Links", icon: Link2 }] : []),
+    // [SMART FEATURES] Knowledge Base and Conversations sidebar items — uncomment when enabled
+    // ...(smartFeatures.knowledgeBase ? [{ id: "Knowledge", label: "Knowledge", icon: BookOpen }] : []),
+    // ...(smartFeatures.smartReplies ? [{ id: "Conversations", label: "Conversations", icon: MessageSquare }] : []),
+    // [/SMART FEATURES]
+  ];
+
   return (
     <aside
       className={cn(
@@ -97,14 +121,21 @@ export default function Sidebar({ isCollapsed, setIsCollapsed, activeTab = "Home
       </div>
 
       <nav className="flex-1 px-4 space-y-0.5 mt-2">
-        {MENU_ITEMS.map((item) => (
+        {menuItems.map((item) => (
           <SidebarItem
             key={item.id}
             icon={item.icon}
             label={item.label}
             active={activeTab === item.id}
             collapsed={isCollapsed}
-            onClick={() => onTabChange(item.id)}
+            beta={item.beta}
+            onClick={() => {
+              if (item.beta && item.betaSlug) {
+                onTabChange(`coming-soon:${item.betaSlug}`);
+              } else {
+                onTabChange(item.id);
+              }
+            }}
           />
         ))}
       </nav>

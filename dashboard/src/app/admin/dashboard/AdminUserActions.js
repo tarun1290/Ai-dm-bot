@@ -1,17 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Crown, Zap, Clock } from "lucide-react";
+import { Crown, Zap, Clock, Brain } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { adminChangePlan, adminGrantDms, adminExtendTrial } from "@/app/admin/actions";
+import { adminChangePlan, adminGrantDms, adminExtendTrial, adminEnableAi, adminDisableAi } from "@/app/admin/actions";
 
-export default function AdminUserActions({ userId, currentPlan }) {
+export default function AdminUserActions({ userId, currentPlan, aiEnabled }) {
   const router = useRouter();
-  const [action, setAction] = useState(null); // "plan" | "dms" | "trial"
+  const [action, setAction] = useState(null); // "plan" | "dms" | "trial" | "ai"
   const [loading, setLoading] = useState(false);
   const [planValue, setPlanValue] = useState(currentPlan || "trial");
   const [dmsValue, setDmsValue] = useState("100");
   const [daysValue, setDaysValue] = useState("7");
+  const [aiNotesValue, setAiNotesValue] = useState("");
   const [feedback, setFeedback] = useState(null);
 
   const handleSubmit = async () => {
@@ -25,10 +26,16 @@ export default function AdminUserActions({ userId, currentPlan }) {
         res = await adminGrantDms(userId, parseInt(dmsValue));
       } else if (action === "trial") {
         res = await adminExtendTrial(userId, parseInt(daysValue));
+      } else if (action === "ai") {
+        if (aiEnabled) {
+          res = await adminDisableAi(userId);
+        } else {
+          res = await adminEnableAi(userId, aiNotesValue);
+        }
       }
 
       if (res?.success) {
-        setFeedback({ type: "success", msg: action === "plan" ? `Set to ${planValue}` : action === "dms" ? `+${dmsValue} DMs` : `+${daysValue} days` });
+        setFeedback({ type: "success", msg: action === "plan" ? `Set to ${planValue}` : action === "dms" ? `+${dmsValue} DMs` : action === "trial" ? `+${daysValue} days` : aiEnabled ? "AI disabled" : "AI enabled" });
         setAction(null);
         router.refresh();
       } else {
@@ -88,6 +95,19 @@ export default function AdminUserActions({ userId, currentPlan }) {
             min="1"
           />
         )}
+        {action === "ai" && !aiEnabled && (
+          <input
+            type="text"
+            value={aiNotesValue}
+            onChange={(e) => setAiNotesValue(e.target.value)}
+            className="w-28 rounded px-1.5 py-0.5 text-[10px] font-bold outline-none"
+            style={{ backgroundColor: "var(--admin-surface-alt)", border: "1px solid var(--admin-border)", color: "var(--admin-text-primary)" }}
+            placeholder="Notes (optional)"
+          />
+        )}
+        {action === "ai" && aiEnabled && (
+          <span className="text-[10px] font-bold" style={{ color: "var(--warning)" }}>Disable AI?</span>
+        )}
         <button
           onClick={handleSubmit}
           disabled={loading}
@@ -142,6 +162,16 @@ export default function AdminUserActions({ userId, currentPlan }) {
           <Clock size={12} />
         </button>
       )}
+      <button
+        onClick={() => setAction("ai")}
+        className="p-1 rounded-lg transition-all"
+        style={{ color: aiEnabled ? "var(--success)" : "var(--admin-text-muted)" }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = aiEnabled ? "var(--error)" : "var(--success)"; e.currentTarget.style.backgroundColor = aiEnabled ? "var(--error-light)" : "var(--success-light)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = aiEnabled ? "var(--success)" : "var(--admin-text-muted)"; e.currentTarget.style.backgroundColor = "transparent"; }}
+        title={aiEnabled ? "Disable AI detection" : "Enable AI detection"}
+      >
+        <Brain size={12} />
+      </button>
     </div>
   );
 }

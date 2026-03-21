@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, CheckCircle2, AtSign, Share2, Link2, MessageSquare, ToggleLeft, ToggleRight } from "lucide-react";
+import { Loader2, CheckCircle2, AtSign, Share2, Link2, MessageSquare, ToggleLeft, ToggleRight, Layers, Brain, Info } from "lucide-react";
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
-import { getInstagramAccount, saveAutomation } from '@/app/dashboard/actions';
+import { getInstagramAccount, saveAutomation, saveReelCategories, saveReelDefaultReply } from '@/app/dashboard/actions';
+import { saveAiDetectionSettings, getAiDetectionStats } from '@/app/dashboard/ai-actions';
+// [SMART FEATURES] import { saveSmartReplyConfig, getSmartReplyStats, getShopifyStore, getKnowledgeDocuments } from '@/app/dashboard/smart-actions';
+import ReelCategoryEditor from './automation/ReelCategoryEditor';
 // [PLANS DISABLED] Feature gating imports not needed during Early Access
 // import { getSubscriptionStatus } from '@/app/dashboard/billing-actions';
 // import { canUseFeature } from '@/lib/gating';
@@ -16,7 +19,7 @@ import TriggerForm from './automation/TriggerForm';
 import ResponseEditor from './automation/ResponseEditor';
 import PreviewPhone from './automation/PreviewPhone';
 
-export default function Automation() {
+export default function Automation({ aiEnabled = false }) {
   const [instaData, setInstaData] = useState({ isConnected: false, username: "", media: [], followersCount: 0 });
   const [fetching, setFetching] = useState(true);
   const [publishing, setPublishing] = useState(false);
@@ -53,6 +56,29 @@ export default function Automation() {
     reelShareButtonText: "Check it out 🚀",
   });
 
+  const [reelCategories, setReelCategories] = useState([]);
+  const [reelDefaultReply, setReelDefaultReply] = useState({ enabled: true, message: "", linkUrl: "", buttonText: "Check it out 🚀" });
+  const [savingCategories, setSavingCategories] = useState(false);
+
+  // AI Product Detection (admin-gated — only rendered when aiEnabled prop is true)
+  const [aiConfig, setAiConfig] = useState({
+    enabled: false,
+    replyTemplate: "I found this! {{productName}} — check it out here:",
+    linkButtonLabel: "Shop Now",
+    fallbackToDefault: true,
+    detectOnlyCategories: [],
+  });
+  const [aiDetectionStats, setAiDetectionStats] = useState(null);
+  const [savingAi, setSavingAi] = useState(false);
+
+  // [SMART FEATURES] Smart Reply config state — uncomment when enabled
+  // const [smartReplyConfig, setSmartReplyConfig] = useState({ enabled: false, tone: "friendly", businessDescription: "", autoReplyToAllDMs: false, excludeKeywords: [], maxRepliesPerThread: 20, workingHoursOnly: false, workingHours: { start: "09:00", end: "18:00", timezone: "Asia/Kolkata" } });
+  // const [smartReplyStats, setSmartReplyStats] = useState(null);
+  // const [savingSmartReply, setSavingSmartReply] = useState(false);
+  // const [shopifyInfo, setShopifyInfo] = useState(null);
+  // const [kbInfo, setKbInfo] = useState(null);
+  // [/SMART FEATURES]
+
   useEffect(() => {
     async function load() {
       try {
@@ -86,10 +112,29 @@ export default function Automation() {
               reelShareLinkUrl: a.reelShareLinkUrl || "",
               reelShareButtonText: a.reelShareButtonText || "Check it out 🚀",
             }));
+            if (a.reelCategories) setReelCategories(a.reelCategories);
+            if (a.reelShareDefaultReply) setReelDefaultReply(a.reelShareDefaultReply);
+            if (a.aiProductDetection) setAiConfig(prev => ({ ...prev, ...a.aiProductDetection }));
           } else if (data.media?.length > 0) {
             setConfig(prev => ({ ...prev, selectedPostId: data.media[0].id }));
           }
         }
+        // Load AI stats if feature is enabled
+        if (aiEnabled) {
+          getAiDetectionStats().then(res => { if (res.success) setAiDetectionStats(res); }).catch(() => {});
+        }
+        // [SMART FEATURES] Load smart reply config and data source info — uncomment when enabled
+        // if (smartFeatures?.smartReplies) {
+        //   if (a?.smartReplyConfig) setSmartReplyConfig(prev => ({ ...prev, ...a.smartReplyConfig }));
+        //   getSmartReplyStats().then(res => { if (res.success) setSmartReplyStats(res); }).catch(() => {});
+        // }
+        // if (smartFeatures?.shopify) {
+        //   getShopifyStore().then(res => { if (res.success) setShopifyInfo(res.store); }).catch(() => {});
+        // }
+        // if (smartFeatures?.knowledgeBase) {
+        //   getKnowledgeDocuments().then(res => { if (res.success) setKbInfo(res.documents); }).catch(() => {});
+        // }
+        // [/SMART FEATURES]
       } catch (e) {
         console.error("Failed to load Instagram account:", e);
       } finally {
@@ -97,7 +142,7 @@ export default function Automation() {
       }
     }
     load();
-  }, []);
+  }, [aiEnabled]);
 
   const update = (key, value) => setConfig(prev => ({ ...prev, [key]: value }));
 
@@ -106,6 +151,44 @@ export default function Automation() {
   const handleFollowToggle = (val) => update('requireFollow', val);
   const handleMentionsToggle = () => update('mentionsEnabled', !config.mentionsEnabled);
   // [/PLANS DISABLED]
+
+  const handleSaveCategories = async () => {
+    setSavingCategories(true);
+    try {
+      const [catRes, defRes] = await Promise.all([
+        saveReelCategories(reelCategories),
+        saveReelDefaultReply(reelDefaultReply),
+      ]);
+      if (catRes.success && defRes.success) {
+        toast.success("Reel category rules saved!");
+        if (catRes.categories) setReelCategories(catRes.categories);
+      } else {
+        toast.error(catRes.error || defRes.error || "Failed to save categories");
+      }
+    } catch (e) {
+      toast.error(`Failed to save categories: ${e.message}`);
+    } finally {
+      setSavingCategories(false);
+    }
+  };
+
+  // [SMART FEATURES] Smart Reply save handler — uncomment when enabled
+  // const handleSaveSmartReply = async () => {
+  //   setSavingSmartReply(true);
+  //   try { const res = await saveSmartReplyConfig(smartReplyConfig); if (res.success) toast.success("Saved!"); else toast.error(res.error); }
+  //   catch (e) { toast.error(e.message); } finally { setSavingSmartReply(false); }
+  // };
+  // [/SMART FEATURES]
+
+  const handleSaveAiSettings = async () => {
+    setSavingAi(true);
+    try {
+      const res = await saveAiDetectionSettings(aiConfig);
+      if (res.success) toast.success("AI detection settings saved!");
+      else toast.error(res.error || "Failed to save");
+    } catch (e) { toast.error(e.message); }
+    finally { setSavingAi(false); }
+  };
 
   const handlePublish = async () => {
     setPublishing(true);
@@ -379,6 +462,220 @@ export default function Automation() {
           )}
         </div>
 
+        {/* Smart Reel Replies — Category Rules */}
+        {config.reelShareEnabled && (
+          <div
+            className="rounded-[28px] p-8 shadow-sm theme-transition"
+            style={{ backgroundColor: 'var(--card)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}
+          >
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{ backgroundColor: 'var(--info-light)', border: '1px solid var(--info)' }}
+              >
+                <Layers size={20} style={{ color: 'var(--info)' }} />
+              </div>
+              <div className="flex-1">
+                <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>Smart Reel Replies</h2>
+                <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--text-placeholder)' }}>
+                  Create up to 5 category-based rules to send different replies based on the reel content.
+                </p>
+              </div>
+            </div>
+
+            <ReelCategoryEditor
+              categories={reelCategories}
+              defaultReply={reelDefaultReply}
+              onChange={setReelCategories}
+              onDefaultReplyChange={setReelDefaultReply}
+            />
+
+            <button
+              onClick={handleSaveCategories}
+              disabled={savingCategories}
+              className="w-full mt-5 py-3 rounded-2xl font-bold text-[13px] flex items-center justify-center gap-2 transition-all text-white"
+              style={{ background: 'linear-gradient(to right, var(--info), var(--primary))' }}
+            >
+              {savingCategories && <Loader2 size={14} className="animate-spin" />}
+              {savingCategories ? "Saving Rules..." : "Save Category Rules"}
+            </button>
+          </div>
+        )}
+
+        {/* AI Product Detection — admin-gated, completely hidden if not enabled */}
+        {aiEnabled && config.reelShareEnabled && (
+          <div
+            className="rounded-[28px] p-8 shadow-sm theme-transition"
+            style={{ backgroundColor: 'var(--card)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: '#ede9fe', border: '1px solid #8b5cf6' }}>
+                  <Brain size={20} style={{ color: '#7c3aed' }} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>AI Product Detection</h2>
+                  <p className="text-[13px] font-medium mt-0.5" style={{ color: 'var(--text-placeholder)' }}>
+                    When no category rule matches, AI analyzes the reel to identify products and sends a purchase link.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAiConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all"
+                style={aiConfig.enabled
+                  ? { backgroundColor: 'var(--success-light)', color: 'var(--success)', border: '1px solid var(--success)' }
+                  : { backgroundColor: 'var(--surface-alt)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+                }
+              >
+                {aiConfig.enabled ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                {aiConfig.enabled ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+
+            {aiConfig.enabled && (
+              <div className="space-y-5">
+                <div>
+                  <label className="text-[11px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'var(--text-placeholder)' }}>
+                    Reply Template
+                  </label>
+                  <textarea
+                    value={aiConfig.replyTemplate}
+                    onChange={(e) => setAiConfig(prev => ({ ...prev, replyTemplate: e.target.value }))}
+                    rows={2}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-medium outline-none transition-all resize-none"
+                    style={{ backgroundColor: 'var(--input-bg)', border: '1px solid var(--input-border)', color: 'var(--input-text)' }}
+                    placeholder="I found this! {{productName}} — check it out here:"
+                  />
+                  <p className="text-[11px] mt-1.5" style={{ color: 'var(--text-placeholder)' }}>
+                    Variables: <span className="font-bold" style={{ color: 'var(--primary)' }}>{'{{productName}}'}</span>, <span className="font-bold" style={{ color: 'var(--primary)' }}>{'{{productBrand}}'}</span>, <span className="font-bold" style={{ color: 'var(--primary)' }}>{'{{productCategory}}'}</span>
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-black uppercase tracking-widest mb-2 block" style={{ color: 'var(--text-placeholder)' }}>
+                    Button Label
+                  </label>
+                  <input
+                    type="text"
+                    value={aiConfig.linkButtonLabel}
+                    onChange={(e) => setAiConfig(prev => ({ ...prev, linkButtonLabel: e.target.value }))}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-medium outline-none transition-all"
+                    style={{ backgroundColor: 'var(--input-bg)', border: '1px solid var(--input-border)', color: 'var(--input-text)' }}
+                    placeholder="Shop Now"
+                    maxLength={20}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl" style={{ backgroundColor: 'var(--surface-alt)' }}>
+                  <div>
+                    <p className="text-[13px] font-bold" style={{ color: 'var(--text-primary)' }}>Fallback to default reply</p>
+                    <p className="text-[11px]" style={{ color: 'var(--text-placeholder)' }}>If AI finds no product, send the default reel reply</p>
+                  </div>
+                  <button
+                    onClick={() => setAiConfig(prev => ({ ...prev, fallbackToDefault: !prev.fallbackToDefault }))}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold"
+                    style={aiConfig.fallbackToDefault
+                      ? { backgroundColor: 'var(--success-light)', color: 'var(--success)' }
+                      : { backgroundColor: 'var(--surface-alt)', color: 'var(--text-muted)', border: '1px solid var(--border)' }
+                    }
+                  >
+                    {aiConfig.fallbackToDefault ? 'On' : 'Off'}
+                  </button>
+                </div>
+
+                {/* Priority explainer */}
+                <div className="flex items-start gap-3 p-4 rounded-xl" style={{ backgroundColor: 'var(--info-light)', border: '1px solid var(--info)' }}>
+                  <Info size={14} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--info)' }} />
+                  <div className="text-[11px] leading-relaxed" style={{ color: 'var(--info)' }}>
+                    <p className="font-bold mb-1">Reply priority chain:</p>
+                    <ol className="list-decimal list-inside space-y-0.5">
+                      <li>Category rules (keywords/hashtags/accounts)</li>
+                      <li>AI product detection (this feature)</li>
+                      <li>Default reel reply</li>
+                    </ol>
+                  </div>
+                </div>
+
+                {/* Stats */}
+                {aiDetectionStats && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'var(--surface-alt)' }}>
+                      <p className="text-lg font-black" style={{ color: 'var(--text-primary)' }}>{aiDetectionStats.detectionsThisMonth}</p>
+                      <p className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Detections</p>
+                    </div>
+                    <div className="p-3 rounded-xl text-center" style={{ backgroundColor: 'var(--surface-alt)' }}>
+                      <p className="text-lg font-black" style={{ color: 'var(--text-primary)' }}>{aiDetectionStats.linksCreated}</p>
+                      <p className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Links</p>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSaveAiSettings}
+                  disabled={savingAi}
+                  className="w-full py-3 rounded-2xl font-bold text-[13px] flex items-center justify-center gap-2 transition-all text-white"
+                  style={{ background: 'linear-gradient(to right, #7c3aed, var(--primary))' }}
+                >
+                  {savingAi && <Loader2 size={14} className="animate-spin" />}
+                  {savingAi ? "Saving..." : "Save AI Settings"}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* [SMART FEATURES] AI Smart Replies section removed — see KnowledgeBasePage.js and ConversationsPage.js for the full UI. Restore from git history when enabling smart features. [/SMART FEATURES] */}
+
+        {/* Beta feature teasers */}
+        <div
+          className="rounded-[28px] p-6 shadow-sm theme-transition cursor-pointer transition-all hover:shadow-md"
+          style={{ backgroundColor: 'var(--card)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}
+          onClick={() => window.location.hash = '#coming-soon-ai'}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: 'var(--primary-light)', border: '1px solid var(--primary-medium)' }}>
+              <Layers size={20} style={{ color: 'var(--primary)' }} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>AI Product Detection</h2>
+                <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'rgba(124, 58, 237, 0.12)', color: '#7C3AED' }}>Beta</span>
+              </div>
+              <p className="text-[12px] font-medium mt-0.5" style={{ color: 'var(--text-placeholder)' }}>
+                AI analyzes shared reels to identify products and send purchase links automatically
+              </p>
+            </div>
+            <span className="text-[11px] font-bold" style={{ color: 'var(--primary)' }}>Learn more &rarr;</span>
+          </div>
+        </div>
+
+        <div
+          className="rounded-[28px] p-6 shadow-sm theme-transition cursor-pointer transition-all hover:shadow-md"
+          style={{ backgroundColor: 'var(--card)', borderWidth: '1px', borderStyle: 'solid', borderColor: 'var(--border)' }}
+          onClick={() => window.location.hash = '#coming-soon-smart'}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: '#ccfbf1', border: '1px solid #0d9488' }}>
+              <MessageSquare size={20} style={{ color: '#0d9488' }} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>AI Smart Replies</h2>
+                <span className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                  style={{ backgroundColor: 'rgba(124, 58, 237, 0.12)', color: '#7C3AED' }}>Beta</span>
+              </div>
+              <p className="text-[12px] font-medium mt-0.5" style={{ color: 'var(--text-placeholder)' }}>
+                AI handles DM conversations using your Shopify products and knowledge base
+              </p>
+            </div>
+            <span className="text-[11px] font-bold" style={{ color: 'var(--primary)' }}>Learn more &rarr;</span>
+          </div>
+        </div>
+
         {/* Publish */}
         <button
           onClick={handlePublish}
@@ -403,6 +700,7 @@ export default function Automation() {
         data={instaData}
         {...config}
         selectedPostId={config.selectedPostId}
+        reelCategories={reelCategories}
       />
     </div>
   );

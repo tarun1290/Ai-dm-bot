@@ -43,6 +43,7 @@ export async function getDashboardStats(accountId) {
     return { contacts: 0, sentToday: 0, transmissionTrend: 0, latestEvents: [] };
   }
 
+  const user = await User.findOne({ userId }).lean();
   const businessId = account.instagramUserId;
   const acctId = account._id;
 
@@ -89,12 +90,27 @@ export async function getDashboardStats(accountId) {
     .limit(10)
     .lean();
 
+  // Reel share category breakdown
+  const reelCategoryBreakdown = await Event.aggregate([
+    { $match: { ...eventFilter, type: 'reel_share', "metadata.matchType": { $exists: true } } },
+    {
+      $group: {
+        _id: "$metadata.matchType",
+        categoryName: { $first: "$metadata.categoryRuleName" },
+        count: { $sum: 1 },
+        sent: { $sum: { $cond: [{ $eq: ["$reply.status", "sent"] }, 1, 0] } },
+      },
+    },
+    { $sort: { count: -1 } },
+  ]);
+
   return {
     contacts: totalContacts,
     sentToday,
     transmissionTrend,
     totalInteractions,
     interactionsByType,
+    reelCategoryBreakdown: JSON.parse(JSON.stringify(reelCategoryBreakdown)),
     recentInteractions: JSON.parse(JSON.stringify(recentInteractions)),
     tokenExpired: account.tokenExpired || false,
     tokenExpiresAt: account.tokenExpiresAt ? account.tokenExpiresAt.toISOString() : null,
@@ -105,6 +121,14 @@ export async function getDashboardStats(accountId) {
       isConnected: account.isConnected,
     },
     accountId: account._id.toString(),
+    // AI feature flag — completely hidden unless admin-enabled
+    aiFeatureEnabled: !!(user?.flags?.aiProductDetectionUnlocked && account?.aiFeature?.enabled),
+    // Smart features flags — completely hidden unless admin-enabled
+    smartFeaturesEnabled: {
+      shopify: !!user?.flags?.shopifyEnabled,
+      knowledgeBase: !!user?.flags?.knowledgeBaseEnabled,
+      smartReplies: !!user?.flags?.smartRepliesEnabled,
+    },
   };
 }
 
@@ -340,6 +364,21 @@ export async function saveDiscoveredAccount(details) {
     { upsert: true, returnDocument: "after" }
   );
 
+  // Auto-enable AI feature on new account if user has the flag
+  const user = await User.findOne({ userId }).lean();
+  if (user?.flags?.aiProductDetectionUnlocked && !account.aiFeature?.enabled) {
+    // Copy enabledBy/notes from another enabled account, or use "system"
+    const existingAiAccount = await InstagramAccount.findOne({
+      userId, "aiFeature.enabled": true,
+    }).lean();
+    await InstagramAccount.findByIdAndUpdate(account._id, {
+      "aiFeature.enabled": true,
+      "aiFeature.enabledBy": existingAiAccount?.aiFeature?.enabledBy || "system",
+      "aiFeature.enabledAt": new Date(),
+      "aiFeature.notes": existingAiAccount?.aiFeature?.notes || "Auto-enabled for flagged user",
+    });
+  }
+
   // Also keep legacy User fields in sync (backward compat during transition)
   await User.findOneAndUpdate(
     { userId },
@@ -447,6 +486,21 @@ export async function saveAutomation(data, accountId) {
     reelShareLinkUrl: data.reelShareLinkUrl || "",
     reelShareButtonText: data.reelShareButtonText || "Check it out 🚀",
   };
+
+  // Preserve existing reel categories and default reply (managed via separate actions)
+  const existingAutomation = account.automation || {};
+  if (existingAutomation.reelCategories) {
+    automationData.reelCategories = existingAutomation.reelCategories;
+  }
+  if (existingAutomation.reelShareDefaultReply) {
+    automationData.reelShareDefaultReply = existingAutomation.reelShareDefaultReply;
+  }
+  if (existingAutomation.aiProductDetection) {
+    automationData.aiProductDetection = existingAutomation.aiProductDetection;
+  }
+  if (existingAutomation.smartReplyConfig) {
+    automationData.smartReplyConfig = existingAutomation.smartReplyConfig;
+  }
 
   const updated = await InstagramAccount.findByIdAndUpdate(
     account._id,
@@ -689,4 +743,134 @@ export async function setPrimaryAccount(accountId) {
   );
 
   return { success: true };
+}
+
+// ── Smart Reel Replies actions ────────────────────────────────────────────────
+
+export async function saveReelCategories(categories, accountId) {
+  const userId = await getOwnerId();
+  await dbConnect();
+
+  if (!Array.isArray(categories)) {
+    return { success: false, error: "Categories must be an array." };
+  }
+  if (categories.length > 5) {
+    return { success: false, error: "Maximum 5 reel categories allowed." };
+  }
+
+  for (const cat of categories) {
+    if (!cat.name?.trim()) {
+      return { success: false, error: "Each category must have a name." };
+    }
+    if (cat.name.length > 50) {
+      return { success: false, error: `Category name "${cat.name}" exceeds 50 characters.` };
+    }
+  }
+
+  const account = await resolveAccount(userId, accountId);
+  if (!account) return { success: false, error: "No account found." };
+
+  const cleanCategories = categories.map((cat, idx) => ({
+    _id: cat._id || undefined,
+    name: cat.name.trim(),
+    enabled: cat.enabled ?? true,
+    priority: cat.priority ?? (categories.length - idx),
+    detection: {
+      keywords: (cat.detection?.keywords || []).map(k => k.trim()).filter(Boolean),
+      hashtags: (cat.detection?.hashtags || []).map(h => h.trim().replace(/^#/, '')).filter(Boolean),
+      accountUsernames: (cat.detection?.accountUsernames || []).map(u => u.trim().replace(/^@/, '')).filter(Boolean),
+      specificReelIds: (cat.detection?.specificReelIds || []).filter(Boolean),
+    },
+    matchMode: cat.matchMode || "any",
+    reply: {
+      message: cat.reply?.message || "",
+      linkUrl: cat.reply?.linkUrl || "",
+      buttonText: cat.reply?.buttonText || "Check it out 🚀",
+    },
+    stats: cat.stats || { totalMatches: 0, totalRepliesSent: 0 },
+    createdAt: cat.createdAt || new Date(),
+  }));
+
+  await InstagramAccount.findByIdAndUpdate(account._id, {
+    "automation.reelCategories": cleanCategories,
+  });
+
+  await User.findOneAndUpdate({ userId }, {
+    "automation.reelCategories": cleanCategories,
+  });
+
+  const updated = await InstagramAccount.findById(account._id).lean();
+  return {
+    success: true,
+    categories: JSON.parse(JSON.stringify(updated?.automation?.reelCategories || [])),
+  };
+}
+
+export async function saveReelDefaultReply(defaultReply, accountId) {
+  const userId = await getOwnerId();
+  await dbConnect();
+
+  const account = await resolveAccount(userId, accountId);
+  if (!account) return { success: false, error: "No account found." };
+
+  const cleanDefault = {
+    enabled: defaultReply?.enabled ?? true,
+    message: defaultReply?.message || "",
+    linkUrl: defaultReply?.linkUrl || "",
+    buttonText: defaultReply?.buttonText || "Check it out 🚀",
+  };
+
+  await InstagramAccount.findByIdAndUpdate(account._id, {
+    "automation.reelShareDefaultReply": cleanDefault,
+  });
+
+  await User.findOneAndUpdate({ userId }, {
+    "automation.reelShareDefaultReply": cleanDefault,
+  });
+
+  return { success: true, defaultReply: cleanDefault };
+}
+
+export async function getReelCategoryStats(accountId) {
+  const userId = await getOwnerId();
+  await dbConnect();
+
+  const account = await resolveAccount(userId, accountId);
+  if (!account) return { success: false, error: "No account found." };
+
+  const acctId = account._id;
+  const businessId = account.instagramUserId;
+  const eventFilter = {
+    type: 'reel_share',
+    $or: [{ accountId: acctId }, { targetBusinessId: businessId, accountId: { $exists: false } }],
+  };
+
+  const byCategory = await Event.aggregate([
+    { $match: { ...eventFilter, "metadata.matchType": "category" } },
+    {
+      $group: {
+        _id: "$metadata.categoryRuleName",
+        categoryRuleId: { $first: "$metadata.categoryRuleId" },
+        totalEvents: { $sum: 1 },
+        sent: { $sum: { $cond: [{ $eq: ["$reply.status", "sent"] }, 1, 0] } },
+        lastAt: { $max: "$createdAt" },
+      },
+    },
+    { $sort: { totalEvents: -1 } },
+  ]);
+
+  const totalReelShares = await Event.countDocuments(eventFilter);
+  const totalCategoryMatches = await Event.countDocuments({ ...eventFilter, "metadata.matchType": "category" });
+  const totalDefaultReplies = await Event.countDocuments({ ...eventFilter, "metadata.matchType": "default" });
+  const totalLegacyReplies = await Event.countDocuments({ ...eventFilter, "metadata.matchType": "legacy" });
+
+  return {
+    success: true,
+    totalReelShares,
+    totalCategoryMatches,
+    totalDefaultReplies,
+    totalLegacyReplies,
+    byCategory: JSON.parse(JSON.stringify(byCategory)),
+    categories: JSON.parse(JSON.stringify(account?.automation?.reelCategories || [])),
+  };
 }

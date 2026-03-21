@@ -1,8 +1,9 @@
-import { ShieldCheck, Users, Zap, MessageSquare, Activity, LogOut, Instagram, TrendingUp, UserCheck, Calendar, DollarSign, CreditCard, Crown, BarChart3, Settings } from "lucide-react";
+import { ShieldCheck, Users, Zap, MessageSquare, Activity, LogOut, Instagram, TrendingUp, UserCheck, Calendar, DollarSign, CreditCard, Crown, BarChart3, Settings, Brain, Link2, Eye } from "lucide-react";
 import { getAdminStats, adminLogout } from "../actions";
 import DeleteUserButton from "./DeleteUserButton";
 import AdminUserActions from "./AdminUserActions";
 import AdminThemeToggle from "./AdminThemeToggle";
+import AdminAiAnalytics from "./AdminAiAnalytics";
 
 // Force dynamic rendering — admin dashboard must always show fresh DB data
 export const dynamic = "force-dynamic";
@@ -169,6 +170,18 @@ export default async function AdminDashboard() {
           </div>
         </section>
 
+        {/* AI Product Detection Stats */}
+        {stats.aiEnabledUsers > 0 && (
+          <section>
+            <h2 className="text-xs font-black uppercase tracking-widest mb-5" style={{ color: "var(--admin-text-muted)" }}>AI Product Detection</h2>
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <StatCard icon={Brain} label="AI-Enabled Users" value={`${stats.aiEnabledUsers} / ${stats.totalUsers}`} sub="Users with AI unlocked" color="blue" />
+              <StatCard icon={Eye} label="Total Detections" value={stats.totalAiDetections} sub="AI analysis runs" color="emerald" />
+              <StatCard icon={Link2} label="Tracked Links" value={stats.totalTrackedLinks} sub="Product links created" color="amber" />
+            </div>
+          </section>
+        )}
+
         {/* [PLANS DISABLED] Revenue & Plan Stats hidden during Early Access */}
         {/* <section>
           <h2>Revenue & Plans</h2>
@@ -179,6 +192,13 @@ export default async function AdminDashboard() {
           Plan breakdown pills...
         </section> */}
         {/* [/PLANS DISABLED] */}
+
+        {/* AI Product Detection Analytics — full analytics dashboard */}
+        {stats.aiEnabledUsers > 0 && (
+          <section>
+            <AdminAiAnalytics />
+          </section>
+        )}
 
         {/* Interaction Breakdown */}
         {stats.eventsByType.length > 0 && (
@@ -222,6 +242,7 @@ export default async function AdminDashboard() {
                     <th className="text-left px-6 py-4 text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--admin-text-muted)" }}>DMs Used</th>
                     <th className="text-left px-6 py-4 text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--admin-text-muted)" }}>Automation</th>
                     <th className="text-left px-6 py-4 text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--admin-text-muted)" }}>Joined</th>
+                    <th className="text-left px-6 py-4 text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--admin-text-muted)" }}>AI</th>
                     <th className="text-left px-6 py-4 text-[10px] font-black uppercase tracking-widest" style={{ color: "var(--admin-text-muted)" }}>Actions</th>
                     <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-right" style={{ color: "var(--admin-text-muted)" }}>Delete</th>
                   </tr>
@@ -287,7 +308,17 @@ export default async function AdminDashboard() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <AdminUserActions userId={user.userId} currentPlan={user.subscription?.plan || "trial"} />
+                        {user.flags?.aiProductDetectionUnlocked ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase"
+                            style={{ backgroundColor: "var(--success-light)", color: "var(--success)", border: "1px solid var(--success)" }}>
+                            On
+                          </span>
+                        ) : (
+                          <span className="text-[10px]" style={{ color: "var(--admin-text-muted)" }}>—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <AdminUserActions userId={user.userId} currentPlan={user.subscription?.plan || "trial"} aiEnabled={!!user.flags?.aiProductDetectionUnlocked} />
                       </td>
                       <td className="px-6 py-4 text-right">
                         <DeleteUserButton userId={user.userId} />
@@ -360,6 +391,32 @@ export default async function AdminDashboard() {
                 </tbody>
               </table>
             )}
+          </div>
+        </section>
+
+        {/* Feature Flags Summary */}
+        <section>
+          <h2 className="text-xs font-black uppercase tracking-widest mb-5" style={{ color: "var(--admin-text-muted)" }}>Feature Flags</h2>
+          <div className="rounded-[16px] p-6 space-y-3" style={{ backgroundColor: "var(--admin-card)", border: "1px solid var(--admin-border)" }}>
+            {[
+              { name: "Payments (Dodo)", status: "Disabled", tag: "[PAYMENTS DISABLED]" },
+              { name: "Feature Gating (Plans)", status: "Disabled", tag: "[PLANS DISABLED]" },
+              { name: "AI Product Detection", status: "Disabled", tag: "[AI DETECTION]" },
+              { name: "Smart Features (Shopify + KB + Smart Replies)", status: "Disabled", tag: "[SMART FEATURES]" },
+              { name: "Early Access Mode", status: "Active", active: true },
+            ].map((flag) => (
+              <div key={flag.name} className="flex items-center justify-between">
+                <span className="text-[12px] font-bold" style={{ color: "var(--admin-text-primary)" }}>{flag.name}</span>
+                <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full`}
+                  style={{
+                    backgroundColor: flag.active ? "var(--success-light)" : "var(--admin-surface-alt)",
+                    color: flag.active ? "var(--success)" : "var(--admin-text-muted)",
+                    border: flag.active ? "1px solid var(--success)" : "1px solid var(--admin-border)",
+                  }}>
+                  {flag.status}
+                </span>
+              </div>
+            ))}
           </div>
         </section>
 

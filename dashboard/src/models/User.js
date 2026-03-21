@@ -40,6 +40,49 @@ const UserSchema = new mongoose.Schema({
     reelShareMessage: { type: String, default: "Hey! 👋 Thanks for sharing!" },
     reelShareLinkUrl: { type: String },
     reelShareButtonText: { type: String, default: "Check it out 🚀" },
+
+    // Smart Reel Replies — category-based auto-reply rules
+    reelCategories: {
+      type: [{
+        name: { type: String, required: true },
+        enabled: { type: Boolean, default: true },
+        priority: { type: Number, default: 0 },
+        detection: {
+          keywords: { type: [String], default: [] },
+          hashtags: { type: [String], default: [] },
+          accountUsernames: { type: [String], default: [] },
+          specificReelIds: { type: [String], default: [] },
+        },
+        matchMode: { type: String, enum: ["any", "all"], default: "any" },
+        reply: {
+          message: { type: String, default: "" },
+          linkUrl: { type: String, default: "" },
+          buttonText: { type: String, default: "Check it out 🚀" },
+        },
+        stats: {
+          totalMatches: { type: Number, default: 0 },
+          totalRepliesSent: { type: Number, default: 0 },
+          lastMatchedAt: { type: Date },
+        },
+        createdAt: { type: Date, default: Date.now },
+      }],
+      default: [],
+      validate: [arr => arr.length <= 5, "Maximum 5 reel categories allowed"],
+    },
+    reelShareDefaultReply: {
+      enabled: { type: Boolean, default: true },
+      message: { type: String, default: "" },
+      linkUrl: { type: String, default: "" },
+      buttonText: { type: String, default: "Check it out 🚀" },
+    },
+  },
+
+  // ── Admin-gated feature flags (hidden from users) ─────────────────────────
+  flags: {
+    aiProductDetectionUnlocked: { type: Boolean, default: false },
+    shopifyEnabled: { type: Boolean, default: false },
+    knowledgeBaseEnabled: { type: Boolean, default: false },
+    smartRepliesEnabled: { type: Boolean, default: false },
   },
 
   // ── Subscription & billing ──────────────────────────────────────────────
@@ -66,6 +109,9 @@ const UserSchema = new mongoose.Schema({
     topUpDmsRemaining: { type: Number, default: 0 },
     monthlyResetDate: { type: Date },
     lastResetAt: { type: Date },
+    aiDetectionsThisMonth: { type: Number, default: 0 },
+    aiDetectionsTotal: { type: Number, default: 0 },
+    aiCostThisMonth: { type: Number, default: 0 },
   },
 
   createdAt: { type: Date, default: Date.now },
