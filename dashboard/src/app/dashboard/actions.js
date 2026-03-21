@@ -289,6 +289,8 @@ export async function saveAutomation(data) {
         dmContent: data.dmContent,
         buttonText: data.buttonText,
         linkUrl: data.linkUrl,
+        deliveryMessage: data.deliveryMessage || '',
+        deliveryButtonText: data.deliveryButtonText || '',
         isActive: true,
         requireFollow: data.requireFollow || false,
         followPromptPublicReply: data.followPromptPublicReply || '',
@@ -300,6 +302,20 @@ export async function saveAutomation(data) {
   );
 
   return { success: true, automation: JSON.parse(JSON.stringify(user.automation)) };
+}
+
+export async function toggleAutomation(isActive) {
+  const userId = await getOwnerId();
+
+  await dbConnect();
+
+  const user = await User.findOneAndUpdate(
+    { userId },
+    { 'automation.isActive': isActive },
+    { returnDocument: 'after' }
+  );
+
+  return { success: true, isActive: user?.automation?.isActive ?? false };
 }
 
 export async function deleteAutomation() {

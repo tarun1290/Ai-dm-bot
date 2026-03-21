@@ -99,23 +99,46 @@ async function sendGenericTemplate(recipientId, elements, token) {
 }
 
 // Public reply to a comment on your own post
-// Instagram Graph API comment replies use form-encoded body
-async function replyToComment(commentId, text, token) {
-    const url = new URL(`${IG_BASE}/${commentId}/replies`);
-    url.searchParams.set('access_token', token);
-    const params = new URLSearchParams();
-    params.set('message', text);
-    const res = await fetch(url.toString(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params.toString()
-    });
-    const data = await res.json();
-    if (!res.ok) {
-        console.error('[replyToComment Error]', JSON.stringify(data));
-        throw new Error(`Reply failed: ${res.status} — ${data?.error?.message || 'unknown'}`);
+// For Business Login for Instagram: POST /{comment-id}/replies with message param
+// Fallback: POST /{media-id}/comments for top-level reply
+async function replyToComment(commentId, text, token, mediaId) {
+    // Try replying directly to the comment
+    try {
+        const url = new URL(`${IG_BASE}/${commentId}/replies`);
+        url.searchParams.set('access_token', token);
+        url.searchParams.set('message', text);
+        const res = await fetch(url.toString(), { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && !data.error) {
+            console.log(`[replyToComment] ✅ Replied to comment ${commentId}`);
+            return data;
+        }
+        console.warn('[replyToComment] replies endpoint failed:', data?.error?.message);
+    } catch (e) {
+        console.warn('[replyToComment] replies endpoint error:', e.message);
     }
-    return data;
+
+    // Fallback: post a comment on the media itself
+    if (mediaId) {
+        try {
+            const url2 = new URL(`${IG_BASE}/${mediaId}/comments`);
+            url2.searchParams.set('access_token', token);
+            url2.searchParams.set('message', text);
+            const res2 = await fetch(url2.toString(), { method: 'POST' });
+            const data2 = await res2.json();
+            if (res2.ok && !data2.error) {
+                console.log(`[replyToComment] ✅ Commented on media ${mediaId}`);
+                return data2;
+            }
+            console.error('[replyToComment Fallback Error]', JSON.stringify(data2));
+            throw new Error(`Reply failed: ${res2.status} — ${data2?.error?.message || 'unknown'}`);
+        } catch (e2) {
+            console.error('[replyToComment Fallback]', e2.message);
+            throw e2;
+        }
+    }
+
+    throw new Error(`Reply failed: no valid endpoint for comment ${commentId}`);
 }
 
 // Private DM to a commenter — MUST use /me/messages with recipient.comment_id
@@ -198,6 +221,37 @@ async function sendFollowGateMessage(igScopedId, text, buttonTitle, commenterIUI
     } catch (e) {
         console.error('[FollowGate Button Error]', e.message);
         return null;
+    }
+}
+
+// Deliver the final content — thank you message + link button template
+// Used after "Yes" confirmation (no follow gate) or follow-gate verification
+async function deliverContent(recipientId, token, automation, igUsername) {
+    const deliveryText = automation.deliveryMessage
+        || `Thank you for your support! 🙌🙏\n\nHere you go. Click the button below to get your content :)`;
+    const linkUrl = automation.linkUrl;
+    const buttonLabel = automation.deliveryButtonText || automation.buttonText || 'View Content';
+
+    if (linkUrl) {
+        // Send template with button link
+        try {
+            await sendGenericTemplate(recipientId, [{
+                title: buttonLabel,
+                subtitle: deliveryText,
+                buttons: [{
+                    type: 'web_url',
+                    url: linkUrl,
+                    title: buttonLabel
+                }]
+            }], token);
+        } catch (e) {
+            console.error('[Delivery Template Error]', e.message);
+            // Fallback: send as plain text
+            await sendDM(recipientId, `${deliveryText}\n\n🔗 ${linkUrl}`, token);
+        }
+    } else {
+        // No link — send plain text delivery message
+        await sendDM(recipientId, deliveryText, token);
     }
 }
 
@@ -293,7 +347,7 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
     // Dedup check
     try {
         await dbConnect();
-        const existing = await Event.findOne({ 'content.commentId': commentId, 'reply.status': 'sent' });
+        const existing = await Event.findOne({ 'content.commentId': commentId, 'reply.status': { $in: ['sent', 'skipped'] } });
         if (existing) {
             console.log(`[Skip] Already replied to: ${commentId}`);
             return;
@@ -322,89 +376,74 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
         }
     }
 
-    // ── Follow gate ──────────────────────────────────────────────────────────
-    if (automation.requireFollow) {
-        const isFollower = await checkIsFollower(senderId, token);
-        if (!isFollower) {
-            const igUsername = botUser.instagramUsername || '';
-            const followPublicReply = automation.followPromptPublicReply
-                || `Follow @${igUsername} and tap the button in my DM to confirm! 💌`;
-            const followPromptText = automation.followPromptDM
-                || `Hey! 👋 Follow @${igUsername} to receive my message 💌\n\nhttps://instagram.com/${igUsername}`;
-            const followButtonTitle = automation.followButtonText || "I'm following now! ✓";
-
-            // Public reply on the comment (visible to all)
-            if (automation.replyEnabled) {
-                try { await replyToComment(commentId, followPublicReply, token); } catch (e) { console.error('[FollowGate Public]', e.message); }
-            }
-
-            // Step 1: Send plain text private reply via comment_id.
-            // This opens the DM conversation and returns the recipient's IGSID.
-            const firstContact = await sendPrivateReply(commentId, followPromptText, token);
-            const igScopedId = firstContact?.recipient_id;
-
-            // Step 2: Using the IGSID, send a button template so they can confirm their follow.
-            // The postback payload encodes the commenter's Instagram User ID for the follow check.
-            if (igScopedId) {
-                await sendFollowGateMessage(
-                    igScopedId,
-                    "Once you've followed, tap the button below to confirm! 👇",
-                    followButtonTitle,
-                    senderId, // commenter's Instagram User ID — encoded in postback payload
-                    token
-                );
-            }
-
-            console.log(`[FollowGate] @${fromInfo?.username || senderId} is not a follower — sent follow prompt + confirm button`);
-            await saveEvent({
-                type,
-                targetBusinessId: automation.instagramBusinessId,
-                from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name },
-                content: { commentId, text: fromInfo?.text, mediaId },
-                reply: { publicReply: followPublicReply, privateDM: followPromptText, status: 'skipped' },
-            });
-            return;
-        }
-        console.log(`[FollowGate] @${fromInfo?.username || senderId} is a follower — proceeding`);
-    }
-
-    let replyStatus = 'skipped';
+    const igUsername = botUser.instagramUsername || '';
     const publicReply = automation.replyMessages?.[0] || 'Check your DM! 📩';
-    const privateDM = automation.dmContent || 'Hi there! 👋 Thanks for reaching out.';
 
-    try {
-        // Public comment reply
-        if (automation.replyEnabled) {
-            try { await replyToComment(commentId, publicReply, token); } catch (e) { console.error('[Public Fail]', e.message); }
-        }
-
-        // Private DM via comment_id — plain text only (first-contact thread)
-        // Quick replies require an existing ongoing DM thread and are NOT supported here
-        const dmText = automation.linkUrl
-            ? `${privateDM}\n\n🔗 ${automation.linkUrl}`
-            : privateDM;
-
-        const dmResult = await sendPrivateReply(commentId, dmText, token);
-        if (dmResult && !dmResult.error) {
-            replyStatus = 'sent';
-        } else {
-            if (checkTokenError(dmResult, botUser)) {
-                replyStatus = 'token_expired';
-            } else {
-                replyStatus = 'failed';
-            }
-        }
-    } catch (err) {
-        console.error('[AutoReply Error]', err.message);
-        replyStatus = 'failed';
+    // ── Step 1: Public reply to the comment ──────────────────────────────────
+    if (automation.replyEnabled) {
+        try { await replyToComment(commentId, publicReply, token, mediaId); } catch (e) { console.error('[Public Fail]', e.message); }
     }
 
+    // ── Step 2: Send initial DM — greeting with "Yes" confirmation button ────
+    // This opens the DM thread via comment_id (required for first contact)
+    const greetingText = automation.dmContent || 'Hey there! Thanks for your interest 😊';
+    const confirmButtonText = automation.buttonText || 'Yes';
+
+    const firstContact = await sendPrivateReply(commentId, greetingText, token);
+    const igScopedId = firstContact?.recipient_id;
+
+    if (!firstContact || firstContact.error) {
+        const status = checkTokenError(firstContact, botUser) ? 'token_expired' : 'failed';
+        console.error('[AutoReply] ❌ Failed to send initial DM');
+        await saveEvent({
+            type,
+            targetBusinessId: automation.instagramBusinessId,
+            from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name },
+            content: { commentId, text: fromInfo?.text, mediaId },
+            reply: { publicReply, privateDM: greetingText, status },
+        });
+        return;
+    }
+
+    // Send the "Yes" confirmation button via postback
+    // Payload encodes: senderId (for follow check) and commentId (for reference)
+    if (igScopedId) {
+        try {
+            const url = new URL(`${IG_BASE}/me/messages`);
+            url.searchParams.set('access_token', token);
+            await fetch(url.toString(), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    recipient: { id: igScopedId },
+                    message: {
+                        attachment: {
+                            type: 'template',
+                            payload: {
+                                template_type: 'button',
+                                text: greetingText,
+                                buttons: [{
+                                    type: 'postback',
+                                    title: confirmButtonText,
+                                    payload: `CONFIRM_INTEREST:${senderId}`
+                                }]
+                            }
+                        }
+                    }
+                })
+            });
+        } catch (e) {
+            console.error('[Confirm Button Error]', e.message);
+        }
+    }
+
+    console.log(`[AutoReply] ✅ Sent greeting + confirmation button to @${fromInfo?.username || senderId}`);
     await saveEvent({
         type,
         targetBusinessId: automation.instagramBusinessId,
         from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name },
         content: { commentId, text: fromInfo?.text, mediaId },
-        reply: { publicReply, privateDM, status: replyStatus },
+        reply: { publicReply, privateDM: greetingText, status: 'sent' },
     });
 }
 
@@ -704,51 +743,151 @@ export async function POST(request) {
                 console.log(`[Postback] From ${senderId}: ${title} (${payload})`);
 
                 const pbProfile = await getUser(senderId, token);
+                const automation = botUser.automation;
+                const igUsername = botUser.instagramUsername || '';
 
-                // ── Follow-gate confirmation postback ─────────────────────────
-                if (payload?.startsWith('CHECK_FOLLOW:')) {
-                    // The commenter's Instagram User ID was encoded in the payload at send time
-                    const commenterIUI = payload.slice('CHECK_FOLLOW:'.length);
-                    const igUsername = botUser.instagramUsername || '';
-                    const automation = botUser.automation;
-                    const isFollower = await checkIsFollower(commenterIUI, token);
+                // ── "Yes" confirmation postback — user wants the content ─────
+                if (payload?.startsWith('CONFIRM_INTEREST:')) {
+                    const commenterIUI = payload.slice('CONFIRM_INTEREST:'.length);
 
-                    if (isFollower && automation?.isActive) {
-                        // ✅ Confirmed follower — deliver the actual automation DM
-                        const privateDM = automation.dmContent || 'Hey! 👋 Thanks for following!';
-                        const dmText = automation.linkUrl
-                            ? `${privateDM}\n\n🔗 ${automation.linkUrl}`
-                            : privateDM;
-                        const dmResult = await sendDM(senderId, dmText, token);
-                        const dmStatus = dmResult && !dmResult.error ? 'sent' : 'failed';
-                        if (dmResult) checkTokenError(dmResult, botUser);
+                    // Check if follow gate is enabled
+                    if (automation?.requireFollow) {
+                        const isFollower = await checkIsFollower(commenterIUI, token);
 
-                        console.log(`[FollowGate ✅] @${pbProfile?.username || senderId} confirmed follow — automation DM sent`);
+                        if (isFollower) {
+                            // Already following → deliver content directly
+                            await deliverContent(senderId, token, automation, igUsername);
+                            console.log(`[Confirm ✅] @${pbProfile?.username || senderId} is a follower — delivered content`);
+                            await saveEvent({
+                                type: 'postback',
+                                targetBusinessId: igBusinessId,
+                                from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
+                                content: { text: title },
+                                reply: { privateDM: automation.deliveryMessage || automation.dmContent, status: 'sent' },
+                            });
+                        } else {
+                            // Not following → send follow prompt with 2 buttons
+                            const followPromptText = automation.followPromptDM
+                                || `Hey! It seems you're not following me yet\nWould love it if you could check out my profile and hit follow 😊`;
+                            const followButtonTitle = automation.followButtonText || "I'm following ✅";
+
+                            try {
+                                const url = new URL(`${IG_BASE}/me/messages`);
+                                url.searchParams.set('access_token', token);
+                                await fetch(url.toString(), {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        recipient: { id: senderId },
+                                        message: {
+                                            attachment: {
+                                                type: 'template',
+                                                payload: {
+                                                    template_type: 'button',
+                                                    text: followPromptText,
+                                                    buttons: [
+                                                        {
+                                                            type: 'web_url',
+                                                            url: `https://instagram.com/${igUsername}`,
+                                                            title: 'Visit Profile'
+                                                        },
+                                                        {
+                                                            type: 'postback',
+                                                            title: followButtonTitle,
+                                                            payload: `CHECK_FOLLOW:${commenterIUI}`
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        }
+                                    })
+                                });
+                            } catch (e) {
+                                console.error('[FollowGate Prompt Error]', e.message);
+                            }
+
+                            console.log(`[FollowGate] @${pbProfile?.username || senderId} not following — sent follow prompt`);
+                            await saveEvent({
+                                type: 'postback',
+                                targetBusinessId: igBusinessId,
+                                from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
+                                content: { text: title },
+                                reply: { privateDM: followPromptText, status: 'skipped' },
+                            });
+                        }
+                    } else {
+                        // No follow gate → deliver content immediately
+                        await deliverContent(senderId, token, automation, igUsername);
+                        console.log(`[Confirm ✅] @${pbProfile?.username || senderId} — delivered content (no follow gate)`);
                         await saveEvent({
                             type: 'postback',
                             targetBusinessId: igBusinessId,
                             from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
                             content: { text: title },
-                            reply: { privateDM: dmText, status: dmStatus },
+                            reply: { privateDM: automation.deliveryMessage || automation.dmContent, status: 'sent' },
+                        });
+                    }
+                    continue;
+                }
+
+                // ── Follow-gate confirmation postback ─────────────────────────
+                if (payload?.startsWith('CHECK_FOLLOW:')) {
+                    const commenterIUI = payload.slice('CHECK_FOLLOW:'.length);
+                    const isFollower = await checkIsFollower(commenterIUI, token);
+
+                    if (isFollower && automation?.isActive) {
+                        // ✅ Confirmed follower — deliver the content
+                        await deliverContent(senderId, token, automation, igUsername);
+
+                        console.log(`[FollowGate ✅] @${pbProfile?.username || senderId} confirmed follow — content delivered`);
+                        await saveEvent({
+                            type: 'postback',
+                            targetBusinessId: igBusinessId,
+                            from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
+                            content: { text: title },
+                            reply: { privateDM: automation.deliveryMessage || automation.dmContent, status: 'sent' },
                         });
                     } else {
-                        // ❌ Not following yet — explain and resend the button
-                        const notYetText = igUsername
-                            ? `Hmm, I can't see your follow yet 🤔\n\nPlease make sure you've followed @${igUsername} and try again!`
-                            : `Hmm, I can't see your follow yet 🤔 Please follow and try again!`;
-                        await sendDM(senderId, notYetText, token);
+                        // ❌ Not following yet — explain and resend the buttons
+                        const notYetText = `Hmm, I can't see your follow yet 🤔\n\nPlease make sure you've followed @${igUsername} and try again!`;
+                        const followButtonTitle = automation?.followButtonText || "I'm following ✅";
 
-                        // Resend the confirm button
-                        const followButtonTitle = automation?.followButtonText || "I'm following now! ✓";
-                        await sendFollowGateMessage(
-                            senderId,
-                            "Once you've followed, tap the button below to confirm! 👇",
-                            followButtonTitle,
-                            commenterIUI,
-                            token
-                        );
+                        try {
+                            const url = new URL(`${IG_BASE}/me/messages`);
+                            url.searchParams.set('access_token', token);
+                            await fetch(url.toString(), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    recipient: { id: senderId },
+                                    message: {
+                                        attachment: {
+                                            type: 'template',
+                                            payload: {
+                                                template_type: 'button',
+                                                text: notYetText,
+                                                buttons: [
+                                                    {
+                                                        type: 'web_url',
+                                                        url: `https://instagram.com/${igUsername}`,
+                                                        title: 'Visit Profile'
+                                                    },
+                                                    {
+                                                        type: 'postback',
+                                                        title: followButtonTitle,
+                                                        payload: `CHECK_FOLLOW:${commenterIUI}`
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    }
+                                })
+                            });
+                        } catch (e) {
+                            console.error('[FollowGate Retry Error]', e.message);
+                        }
 
-                        console.log(`[FollowGate ❌] @${pbProfile?.username || senderId} not yet following — re-sent button`);
+                        console.log(`[FollowGate ❌] @${pbProfile?.username || senderId} not yet following — re-sent buttons`);
                         await saveEvent({
                             type: 'postback',
                             targetBusinessId: igBusinessId,

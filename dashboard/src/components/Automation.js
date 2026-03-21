@@ -25,8 +25,10 @@ export default function Automation() {
     keywords: "",
     replyMessages: ["Check your DMs! 📩"],
     dmContent: "Hey there! Thanks so much for your interest 😊\n\nClick below and I'll send you the link right away ✨",
-    buttonText: "Send me the link",
+    buttonText: "Yes",
     linkUrl: "",
+    deliveryMessage: "",
+    deliveryButtonText: "",
     requireFollow: false,
     followPromptPublicReply: "",
     followPromptDM: "",
@@ -52,6 +54,8 @@ export default function Automation() {
               dmContent: a.dmContent || prev.dmContent,
               buttonText: a.buttonText || prev.buttonText,
               linkUrl: a.linkUrl || prev.linkUrl,
+              deliveryMessage: a.deliveryMessage || "",
+              deliveryButtonText: a.deliveryButtonText || "",
               requireFollow: a.requireFollow ?? false,
               followPromptPublicReply: a.followPromptPublicReply || "",
               followPromptDM: a.followPromptDM || "",
@@ -159,6 +163,8 @@ export default function Automation() {
             setDmContent={(v) => update('dmContent', v)}
             setButtonText={(v) => update('buttonText', v)}
             setLinkUrl={(v) => update('linkUrl', v)}
+            setDeliveryMessage={(v) => update('deliveryMessage', v)}
+            setDeliveryButtonText={(v) => update('deliveryButtonText', v)}
           />
         </div>
 

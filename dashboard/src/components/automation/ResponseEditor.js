@@ -7,55 +7,60 @@ const DM_PRESETS = [
     label: "Friendly",
     emoji: "😊",
     preview: "Hey there! Thanks so much for your interest 😊",
-    full: "Hey there! Thanks so much for your interest 😊\n\nClick below and I'll send you the link right away ✨",
+    full: "Hey there! I'm really glad you're here, thank you so much for your interest 😊",
   },
   {
     label: "Casual",
     emoji: "👋",
     preview: "Hey! Saw your comment and wanted to reach out",
-    full: "Hey! 👋 Saw your comment and wanted to reach out personally.\n\nHere's what you asked for 👇",
+    full: "Hey! 👋 Saw your comment and wanted to reach out personally.",
   },
   {
     label: "Excited",
     emoji: "🎉",
     preview: "Yay! So happy you're interested",
-    full: "Yay! So happy you're here 🎉\n\nI've got something special for you — tap below to grab it!",
+    full: "Yay! So happy you're here 🎉\n\nI've got something special for you!",
   },
   {
     label: "Professional",
     emoji: "📋",
     preview: "Hi! Thanks for reaching out.",
-    full: "Hi! Thanks for reaching out.\n\nPlease find the information you requested via the link below.",
+    full: "Hi! Thanks for reaching out. I appreciate your interest.",
   },
   {
     label: "Hype",
     emoji: "🔥",
     preview: "You caught this just in time!",
-    full: "You caught this just in time 🔥\n\nTap below before it's gone — I'll send it straight to you!",
+    full: "You caught this just in time 🔥\n\nI've got something you'll love!",
   },
   {
     label: "Warm",
     emoji: "💕",
     preview: "Means the world that you're here!",
-    full: "It means the world that you're here 💕\n\nI've put something together just for you — check it out below 👇",
+    full: "It means the world that you're here 💕\n\nI've put something together just for you!",
   },
 ];
 
 export default function ResponseEditor({
   dmContent, setDmContent,
   buttonText, setButtonText,
-  linkUrl, setLinkUrl
+  linkUrl, setLinkUrl,
+  deliveryMessage, setDeliveryMessage,
+  deliveryButtonText, setDeliveryButtonText,
 }) {
   const selectedPreset = DM_PRESETS.find(p => p.full === dmContent);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
 
-      {/* DM message */}
+      {/* ── Step 1: Initial Greeting DM ── */}
       <div className="space-y-4">
-        <div>
-          <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Opening DM</label>
-          <p className="text-[12px] text-slate-400 mt-0.5">Sent privately when someone triggers the automation.</p>
+        <div className="flex items-center gap-3 mb-2">
+          <span className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-primary text-[12px] font-black">1</span>
+          <div>
+            <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Greeting Message</label>
+            <p className="text-[12px] text-slate-400 mt-0.5">The first DM sent when someone comments. Includes a confirmation button.</p>
+          </div>
         </div>
 
         {/* Preset templates */}
@@ -95,7 +100,7 @@ export default function ResponseEditor({
           </div>
         </div>
 
-        {/* Textarea — always editable */}
+        {/* Textarea */}
         <div>
           <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
             {selectedPreset ? `Editing "${selectedPreset.label}" template` : "Custom message"}
@@ -104,42 +109,74 @@ export default function ResponseEditor({
             className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all min-h-[110px] leading-relaxed resize-none"
             value={dmContent}
             onChange={(e) => setDmContent(e.target.value)}
-            placeholder="Write your auto-DM message here..."
+            placeholder="Write your greeting message here..."
           />
-          <p className="text-[11px] text-slate-300 mt-1">You can edit any template above or write your own here.</p>
+          <p className="text-[11px] text-slate-300 mt-1">This message is shown with a confirmation button below it.</p>
         </div>
-      </div>
 
-      {/* Link (optional) */}
-      <div className="space-y-3">
-        <div>
-          <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
-            Link <span className="text-slate-300 font-medium normal-case tracking-normal">(optional)</span>
-          </label>
-          <p className="text-[12px] text-slate-400 mt-0.5">Included in the DM message below the text.</p>
-        </div>
-        <input
-          type="url"
-          value={linkUrl}
-          onChange={(e) => setLinkUrl(e.target.value)}
-          placeholder="https://yourlink.com"
-          className="w-full bg-slate-50 border border-slate-200 rounded-xl h-11 px-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium text-primary"
-        />
-      </div>
-
-      {/* Button label */}
-      {linkUrl && (
-        <div className="space-y-3">
-          <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Button Label</label>
+        {/* Confirmation button label */}
+        <div className="space-y-2">
+          <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Confirmation Button Text</label>
           <input
             type="text"
             value={buttonText}
             onChange={(e) => setButtonText(e.target.value)}
-            placeholder="e.g. Get the link, Grab it here"
+            placeholder="e.g. Yes, Send it, I want it"
             className="w-full bg-slate-50 border border-slate-200 rounded-xl h-11 px-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
           />
+          <p className="text-[11px] text-slate-300">The user taps this button to confirm interest and receive the content.</p>
         </div>
-      )}
+      </div>
+
+      <div className="h-px bg-slate-100" />
+
+      {/* ── Step 2: Content Delivery ── */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600 text-[12px] font-black">2</span>
+          <div>
+            <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Delivery Message</label>
+            <p className="text-[12px] text-slate-400 mt-0.5">Sent after the user confirms (and follows, if required). Include your link here.</p>
+          </div>
+        </div>
+
+        <div>
+          <textarea
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all min-h-[90px] leading-relaxed resize-none"
+            value={deliveryMessage}
+            onChange={(e) => setDeliveryMessage(e.target.value)}
+            placeholder="e.g. Thank you for your support! 🙌🙏&#10;&#10;Here you go. Click the button below to get your content :)"
+          />
+        </div>
+
+        {/* Link */}
+        <div className="space-y-2">
+          <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+            Link URL <span className="text-slate-300 font-medium normal-case tracking-normal">(optional)</span>
+          </label>
+          <input
+            type="url"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            placeholder="https://yourlink.com"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl h-11 px-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all font-medium text-primary"
+          />
+        </div>
+
+        {/* Delivery button label */}
+        {linkUrl && (
+          <div className="space-y-2">
+            <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Link Button Label</label>
+            <input
+              type="text"
+              value={deliveryButtonText}
+              onChange={(e) => setDeliveryButtonText(e.target.value)}
+              placeholder="e.g. Goto NVIDIA, Get Access, View Content"
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl h-11 px-4 text-sm focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
+            />
+          </div>
+        )}
+      </div>
 
     </div>
   );

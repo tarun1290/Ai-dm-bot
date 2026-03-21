@@ -31,7 +31,7 @@ import Automation from "@/components/Automation";
 import Settings from "@/components/Settings";
 import Contacts from "@/components/Contacts";
 import Activity from "@/components/Activity";
-import { getDashboardStats, deleteAutomation } from './actions';
+import { getDashboardStats, deleteAutomation, toggleAutomation } from './actions';
 
 const INTERACTION_TYPE_CONFIG = {
   comment:    { label: "Comment",    icon: MessageCircle, color: "text-blue-500",   bg: "bg-blue-50",   border: "border-blue-100"   },
@@ -203,6 +203,27 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  const [togglingAutomation, setTogglingAutomation] = useState(false);
+
+  const handleToggleAutomation = async () => {
+    if (togglingAutomation) return;
+    setTogglingAutomation(true);
+    try {
+      const newState = !stats.automation.isActive;
+      const res = await toggleAutomation(newState);
+      if (res.success) {
+        setStats(prev => ({
+          ...prev,
+          automation: { ...prev.automation, isActive: res.isActive }
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to toggle automation:", err);
+    } finally {
+      setTogglingAutomation(false);
+    }
+  };
+
   const handleDeleteAutomation = async () => {
     setDeletingAutomation(true);
     try {
@@ -329,18 +350,26 @@ export default function Home() {
                 <h3 className="text-2xl font-black text-black mb-6">Automation Status</h3>
                 <div className="bg-white border border-slate-100 rounded-[28px] p-8 shadow-sm">
                   <div className="flex flex-col md:flex-row md:items-start gap-8">
-                    {/* Status indicator */}
+                    {/* Status toggle */}
                     <div className="flex items-center gap-4">
-                      <div className={cn(
-                        "w-12 h-12 rounded-2xl flex items-center justify-center border",
-                        stats.automation.isActive ? "bg-emerald-50 border-emerald-100" : "bg-slate-50 border-slate-200"
-                      )}>
-                        <ToggleRight size={22} className={stats.automation.isActive ? "text-emerald-600" : "text-slate-400"} />
-                      </div>
+                      <button
+                        onClick={handleToggleAutomation}
+                        disabled={togglingAutomation}
+                        className={cn(
+                          "relative w-14 h-8 rounded-full transition-all duration-300 flex-shrink-0",
+                          stats.automation.isActive ? "bg-emerald-500" : "bg-slate-300",
+                          togglingAutomation && "opacity-60"
+                        )}
+                      >
+                        <span className={cn(
+                          "absolute top-1 w-6 h-6 bg-white rounded-full shadow-md transition-all duration-300",
+                          stats.automation.isActive ? "left-7" : "left-1"
+                        )} />
+                      </button>
                       <div>
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">Status</p>
                         <p className={cn("text-[16px] font-black", stats.automation.isActive ? "text-emerald-600" : "text-slate-400")}>
-                          {stats.automation.isActive ? "Live & Active" : "Inactive"}
+                          {togglingAutomation ? "Updating..." : stats.automation.isActive ? "Live & Active" : "Paused"}
                         </p>
                       </div>
                     </div>

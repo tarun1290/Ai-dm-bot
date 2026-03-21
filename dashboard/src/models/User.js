@@ -23,6 +23,8 @@ const UserSchema = new mongoose.Schema({
     dmContent: { type: String },
     buttonText: { type: String },
     linkUrl: { type: String },
+    deliveryMessage: { type: String },
+    deliveryButtonText: { type: String },
     isActive: { type: Boolean, default: false },
     requireFollow: { type: Boolean, default: false },
     followPromptPublicReply: { type: String },
