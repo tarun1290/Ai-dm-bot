@@ -131,11 +131,14 @@ export async function getAllInteractions(type) {
   return JSON.parse(JSON.stringify(events));
 }
 
-export async function getAccountsFromToken(code) {
+export async function getAccountsFromToken(code, redirectUri) {
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "2989539487909963";
   const appSecret = process.env.META_APP_SECRET;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
-  const redirectUri = `${appUrl}/onboarding`;
+  // Use the exact redirect_uri that was sent in the OAuth request
+  if (!redirectUri) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
+    redirectUri = `${appUrl}/onboarding`;
+  }
 
   try {
     if (!appSecret) throw new Error("Missing META_APP_SECRET in environment variables.");
