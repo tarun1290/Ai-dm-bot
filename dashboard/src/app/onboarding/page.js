@@ -19,9 +19,10 @@ export default function Onboarding() {
   const [showHelp, setShowHelp] = useState(false);
 
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "2989539487909963";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
 
-  // Build the redirect URI once — used for both the OAuth request and the token exchange
-  const getRedirectUri = () => `${window.location.origin}/onboarding`;
+  // Must match EXACTLY what's registered in Meta App Dashboard → Valid OAuth Redirect URIs
+  const redirectUri = `${appUrl}/onboarding`;
 
   // Handle OAuth redirect — Instagram sends ?code= back to this page
   useEffect(() => {
@@ -48,7 +49,6 @@ export default function Onboarding() {
 
   const handleInstagramLogin = () => {
     setError("");
-    const redirectUri = getRedirectUri();
     const url = new URL("https://www.instagram.com/oauth/authorize");
     url.searchParams.set("client_id", appId);
     url.searchParams.set("redirect_uri", redirectUri);
@@ -61,9 +61,7 @@ export default function Onboarding() {
     setLoading(true);
     setError("");
     try {
-      // Pass the exact same redirect_uri used in the OAuth request
-      const redirectUri = getRedirectUri();
-      const res = await getAccountsFromToken(code, redirectUri);
+      const res = await getAccountsFromToken(code);
 
       if (res.success) {
         if (res.accounts.length === 1) {
