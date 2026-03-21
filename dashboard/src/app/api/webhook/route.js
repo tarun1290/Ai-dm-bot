@@ -319,9 +319,7 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
     }
 
     let replyStatus = 'skipped';
-    const publicReply = automation.replyMessages?.length > 0
-        ? automation.replyMessages[Math.floor(Math.random() * automation.replyMessages.length)]
-        : 'Check your DM! 📩';
+    const publicReply = automation.replyMessages?.[0] || 'Check your DM! 📩';
     const privateDM = automation.dmContent || 'Hi there! 👋 Thanks for reaching out.';
 
     try {

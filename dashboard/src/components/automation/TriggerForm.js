@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Toggle } from "./UIHelpers";
-import { Play, ExternalLink, Heart, MessageCircle, CheckCircle2, X, Plus, UserCheck } from "lucide-react";
+import { Play, ExternalLink, Heart, MessageCircle, CheckCircle2, UserCheck } from "lucide-react";
 
 const REPLY_PRESETS = [
   "Check your DMs! 📩",
@@ -240,74 +240,45 @@ export default function TriggerForm({
         </div>
 
         {replyToggle && (
-          <div className="space-y-5 mt-4">
-            {/* Presets */}
+          <div className="space-y-4 mt-4">
+            {/* Presets — single select */}
             <div>
               <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2.5">
-                Quick presets — click to add
+                Presets — select one
               </p>
               <div className="flex flex-wrap gap-2">
                 {REPLY_PRESETS.map((preset) => {
-                  const isAdded = replyMessages.includes(preset);
+                  const isSelected = replyMessages[0] === preset;
                   return (
                     <button
                       key={preset}
-                      onClick={() => {
-                        if (isAdded) {
-                          setReplyMessages(replyMessages.filter(m => m !== preset));
-                        } else {
-                          setReplyMessages([...replyMessages, preset]);
-                        }
-                      }}
+                      onClick={() => setReplyMessages([preset])}
                       className={cn(
                         "text-[12px] font-semibold px-3 py-1.5 rounded-xl border transition-all",
-                        isAdded
+                        isSelected
                           ? "bg-primary/10 border-primary/30 text-primary"
                           : "bg-white border-slate-200 text-slate-600 hover:border-primary/30 hover:text-primary"
                       )}
                     >
-                      {isAdded ? "✓ " : "+ "}{preset}
+                      {isSelected && "✓ "}{preset}
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Active messages */}
+            {/* Single reply input */}
             <div>
-              <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2.5">
-                Active messages — one is picked at random
+              <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                Reply message
               </p>
-              <div className="space-y-2">
-                {replyMessages.map((text, i) => (
-                  <div key={i} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={text}
-                      onChange={(e) => {
-                        const updated = [...replyMessages];
-                        updated[i] = e.target.value;
-                        setReplyMessages(updated);
-                      }}
-                      className="flex-1 bg-white border border-slate-200 rounded-xl h-10 px-4 text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all"
-                    />
-                    {replyMessages.length > 1 && (
-                      <button
-                        onClick={() => setReplyMessages(replyMessages.filter((_, idx) => idx !== i))}
-                        className="w-10 h-10 rounded-xl border border-slate-200 text-slate-400 hover:text-rose-500 hover:border-rose-200 flex items-center justify-center transition-colors flex-shrink-0"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => setReplyMessages([...replyMessages, ""])}
-                className="flex items-center gap-1.5 text-[12px] font-bold text-slate-400 hover:text-primary mt-3 transition-colors"
-              >
-                <Plus size={13} /> Add custom reply
-              </button>
+              <input
+                type="text"
+                value={replyMessages[0] || ""}
+                onChange={(e) => setReplyMessages([e.target.value])}
+                placeholder="Type your public reply here…"
+                className="w-full bg-white border border-slate-200 rounded-xl h-10 px-4 text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all"
+              />
             </div>
           </div>
         )}

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { verifyToken } from "@/lib/jwt";
+import LandingPage from "@/components/LandingPage";
 
 export default async function RootPage() {
   const cookieStore = await cookies();
@@ -9,5 +10,5 @@ export default async function RootPage() {
     const payload = await verifyToken(token);
     if (payload) redirect("/dashboard");
   }
-  redirect("/sign-in");
+  return <LandingPage />;
 }
