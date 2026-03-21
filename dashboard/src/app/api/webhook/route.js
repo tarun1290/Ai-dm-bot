@@ -99,17 +99,23 @@ async function sendGenericTemplate(recipientId, elements, token) {
 }
 
 // Public reply to a comment on your own post
-// Must use JSON body — NOT query params
+// Instagram Graph API comment replies use form-encoded body
 async function replyToComment(commentId, text, token) {
     const url = new URL(`${IG_BASE}/${commentId}/replies`);
     url.searchParams.set('access_token', token);
+    const params = new URLSearchParams();
+    params.set('message', text);
     const res = await fetch(url.toString(), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text })
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString()
     });
-    if (!res.ok) throw new Error(`Reply failed: ${res.status}`);
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) {
+        console.error('[replyToComment Error]', JSON.stringify(data));
+        throw new Error(`Reply failed: ${res.status} — ${data?.error?.message || 'unknown'}`);
+    }
+    return data;
 }
 
 // Private DM to a commenter — MUST use /me/messages with recipient.comment_id
@@ -248,7 +254,8 @@ function checkTokenError(data, botUser) {
 }
 
 async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, token, automation, botUser) {
-    if (!commentId) return;
+    console.log(`[AutoReply] Start — commentId=${commentId} senderId=${senderId} type=${type}`);
+    if (!commentId) { console.log('[AutoReply] ❌ No commentId — skipping'); return; }
 
     // Dedup check
     try {
@@ -260,16 +267,26 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
         }
     } catch {}
 
-    if (!automation?.isActive) return;
+    if (!automation?.isActive) {
+        console.log(`[AutoReply] ❌ Automation not active — isActive=${automation?.isActive}`);
+        return;
+    }
+    console.log(`[AutoReply] ✅ Automation active — postTrigger=${automation.postTrigger} commentTrigger=${automation.commentTrigger} requireFollow=${automation.requireFollow}`);
 
     // Comments webhook nests the media ID at value.media.id — NOT value.media_id
     const mediaId = rawPayload.media?.id || rawPayload.media_id || rawPayload.post_id;
-    if (automation.postTrigger === 'specific' && automation.selectedPostId && mediaId !== automation.selectedPostId) return;
+    if (automation.postTrigger === 'specific' && automation.selectedPostId && mediaId !== automation.selectedPostId) {
+        console.log(`[AutoReply] ❌ Media mismatch — got=${mediaId} expected=${automation.selectedPostId}`);
+        return;
+    }
 
     const commentText = (fromInfo?.text || '').toLowerCase();
     if (automation.commentTrigger === 'specific' && automation.keywords?.length > 0) {
         const hasKeyword = automation.keywords.some(k => commentText.includes(k.toLowerCase()));
-        if (!hasKeyword) return;
+        if (!hasKeyword) {
+            console.log(`[AutoReply] ❌ Keyword mismatch — text="${commentText}" keywords=${JSON.stringify(automation.keywords)}`);
+            return;
+        }
     }
 
     // ── Follow gate ──────────────────────────────────────────────────────────
@@ -311,7 +328,7 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
                 targetBusinessId: automation.instagramBusinessId,
                 from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name },
                 content: { commentId, text: fromInfo?.text, mediaId },
-                reply: { publicReply: followPublicReply, dmText: followPromptText, status: 'skipped' },
+                reply: { publicReply: followPublicReply, privateDM: followPromptText, status: 'skipped' },
             });
             return;
         }
@@ -354,7 +371,7 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
         targetBusinessId: automation.instagramBusinessId,
         from: { id: fromInfo?.id, username: fromInfo?.username, name: fromInfo?.name },
         content: { commentId, text: fromInfo?.text, mediaId },
-        reply: { publicReply, dmText: privateDM, status: replyStatus },
+        reply: { publicReply, privateDM, status: replyStatus },
     });
 }
 
@@ -406,7 +423,10 @@ export async function POST(request) {
         return new NextResponse('Bad Request', { status: 400 });
     }
 
+    console.log(`[Webhook POST] object=${body.object} entries=${body.entry?.length || 0}`);
+
     if (body.object !== 'instagram') {
+        console.log(`[Webhook] ❌ Unexpected object type: ${body.object}`);
         return new NextResponse('Not Found', { status: 404 });
     }
 
@@ -429,13 +449,19 @@ export async function POST(request) {
 
         const token = botUser.instagramAccessToken;
         const igBusinessId = botUser.instagramBusinessId;
+        console.log(`[Webhook] ✅ Found user for ID ${targetId} — automation.isActive=${botUser.automation?.isActive}`);
 
         // 1. Comments & Mentions (Feed / Live Comments)
         const changes = entry.changes || [];
+        console.log(`[Webhook] Processing ${changes.length} changes, ${(entry.messaging || []).length} messaging events`);
         for (const change of changes) {
             const { field, value } = change;
+            console.log(`[Webhook] Change — field=${field} item=${value.item || 'N/A'} from=${value.from?.id || value.sender_id}`);
             const fromId = value.from?.id || value.sender_id;
-            if (fromId === targetId || fromId === igBusinessId) continue;
+            if (fromId === targetId || fromId === igBusinessId) {
+                console.log(`[Webhook] Skipping own event from ${fromId}`);
+                continue;
+            }
 
             if (field === 'feed' || field === 'comments' || field === 'live_comments') {
                 if (value.item === 'comment' || field === 'comments' || field === 'live_comments') {
@@ -447,7 +473,7 @@ export async function POST(request) {
                     console.log(`[Comment] @${value.from?.username}: ${value.text || value.message}`);
                     await handleAutoReply(cid, fromId, 'comment', {
                         id: fromId, username: value.from?.username, text: value.text || value.message
-                    }, value, token, { ...botUser.automation, instagramBusinessId: igBusinessId }, botUser);
+                    }, value, token, { ...(botUser.automation?.toObject?.() || botUser.automation || {}), instagramBusinessId: igBusinessId }, botUser);
                 }
             }
 
@@ -664,7 +690,7 @@ export async function POST(request) {
                             targetBusinessId: igBusinessId,
                             from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
                             content: { text: title },
-                            reply: { dmText, status: dmStatus },
+                            reply: { privateDM: dmText, status: dmStatus },
                         });
                     } else {
                         // ❌ Not following yet — explain and resend the button
@@ -689,7 +715,7 @@ export async function POST(request) {
                             targetBusinessId: igBusinessId,
                             from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
                             content: { text: title },
-                            reply: { dmText: notYetText, status: 'skipped' },
+                            reply: { privateDM: notYetText, status: 'skipped' },
                         });
                     }
                     continue;
@@ -712,7 +738,7 @@ export async function POST(request) {
                     targetBusinessId: botUser.instagramBusinessId,
                     from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
                     content: { text: title, url: payload },
-                    reply: { dmText: replyText, status: 'sent' },
+                    reply: { privateDM: replyText, status: 'sent' },
                 });
             }
         }
