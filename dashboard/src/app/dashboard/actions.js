@@ -172,10 +172,25 @@ export async function getAccountsFromToken(code) {
       }
     } catch { /* keep short-lived on failure */ }
 
-    // Get Instagram user info
+    // Get Instagram user info (app-scoped ID)
     const meRes = await fetch(`https://graph.instagram.com/me?fields=id,username,name&access_token=${token}`);
     const me = await meRes.json();
     if (me.error) throw new Error(me.error.message);
+
+    // Try to get the page-scoped Instagram Business Account ID (used by webhooks)
+    let webhookId = null;
+    try {
+      const pagesRes = await fetch(`https://graph.facebook.com/v25.0/me/accounts?fields=id,instagram_business_account&access_token=${token}`);
+      const pagesData = await pagesRes.json();
+      if (pagesData.data) {
+        for (const page of pagesData.data) {
+          if (page.instagram_business_account?.id) {
+            webhookId = page.instagram_business_account.id;
+            break;
+          }
+        }
+      }
+    } catch { /* optional — webhook lookup will use app-scoped ID as fallback */ }
 
     return {
       success: true,
@@ -183,6 +198,7 @@ export async function getAccountsFromToken(code) {
         pageId: null,
         pageToken: token,
         igId: me.id,
+        webhookId,
         username: me.username,
         name: me.name || me.username,
         profilePic: null,
@@ -231,6 +247,7 @@ export async function saveDiscoveredAccount(details) {
     {
       instagramAccessToken: accessToken,
       instagramBusinessId: details.igId,
+      instagramWebhookId: details.webhookId || details.igId,
       instagramUsername: details.username,
       instagramProfilePic: details.profilePic,
       isConnected: true,

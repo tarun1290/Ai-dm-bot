@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema({
   passwordHash: { type: String },
   instagramAccessToken: { type: String },
   instagramBusinessId: { type: String },
+  instagramWebhookId: { type: String },
   instagramUsername: { type: String },
   instagramProfilePic: { type: String },
   isConnected: { type: Boolean, default: false },

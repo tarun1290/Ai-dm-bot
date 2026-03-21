@@ -474,7 +474,12 @@ export async function POST(request) {
             continue;
         }
 
-        const botUser = await User.findOne({ instagramBusinessId: targetId }).catch(() => null);
+        const botUser = await User.findOne({
+            $or: [
+                { instagramWebhookId: targetId },
+                { instagramBusinessId: targetId }
+            ]
+        }).catch(() => null);
 
         if (!botUser?.instagramAccessToken) {
             console.log(`[Webhook] No active account for ID: ${targetId}`);
