@@ -134,7 +134,7 @@ export async function getAllInteractions(type) {
 export async function getAccountsFromToken(code) {
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "2989539487909963";
   const appSecret = process.env.META_APP_SECRET;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://engagr-dm.vercel.app";
   const redirectUri = `${appUrl}/onboarding`;
 
   try {

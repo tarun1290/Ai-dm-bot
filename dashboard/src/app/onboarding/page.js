@@ -19,7 +19,7 @@ export default function Onboarding() {
   const [showHelp, setShowHelp] = useState(false);
 
   const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID || "2989539487909963";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://aidmbot.vercel.app";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://engagr-dm.vercel.app";
 
   // Must match EXACTLY what's registered in Meta App Dashboard → Valid OAuth Redirect URIs
   const redirectUri = `${appUrl}/onboarding`;

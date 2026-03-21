@@ -621,7 +621,7 @@ export async function POST(request) {
                     if (isSharedContent) {
                         // Shared reel/post — send auto-reply
                         console.log('[Shared] Post/Reel detected — sending reply');
-                        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://aidmbot.vercel.app';
+                        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
                         const firstName = profile?.name?.split(' ')[0] || 'there';
                         const replyText = `Hi ${firstName}! 👋 Thanks for sharing! 🎉\n\n🔗 ${appUrl}`;
                         let templateSent = false;
@@ -755,7 +755,7 @@ export async function POST(request) {
                 }
 
                 // ── Generic postback fallback ─────────────────────────────────
-                const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://aidmbot.vercel.app';
+                const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://engagr-dm.vercel.app';
                 let replyText = 'Thanks for your choice! 🌟';
                 if (payload === 'VISIT_SITE') {
                     replyText = `Here's the link you requested: ${appUrl} 🚀`;

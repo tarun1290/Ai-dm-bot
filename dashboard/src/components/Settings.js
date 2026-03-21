@@ -143,7 +143,7 @@ export default function Settings({ stats }) {
           <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Meta Deauthorize Callback URL</p>
             <code className="text-xs text-pink-600 font-mono break-all">
-              https://aidmbot.vercel.app/api/auth/deauthorize
+              https://engagr-dm.vercel.app/api/auth/deauthorize
             </code>
           </div>
           <a
@@ -172,14 +172,14 @@ export default function Settings({ stats }) {
           <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Meta Data Deletion Callback URL</p>
             <code className="text-xs text-pink-600 font-mono break-all">
-              https://aidmbot.vercel.app/api/auth/data-deletion
+              https://engagr-dm.vercel.app/api/auth/data-deletion
             </code>
           </div>
 
           <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
             <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Data Deletion Status URL</p>
             <code className="text-xs text-pink-600 font-mono break-all">
-              https://aidmbot.vercel.app/data-deletion-status
+              https://engagr-dm.vercel.app/data-deletion-status
             </code>
           </div>
 
