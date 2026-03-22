@@ -5,6 +5,9 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, unique: true, sparse: true, lowercase: true },
   name: { type: String },
   passwordHash: { type: String },
+  googleId: { type: String, default: null },
+  authProvider: { type: String, enum: ["email", "google", "instagram"], default: "email" },
+  profilePicture: { type: String, default: null },
   instagramAccessToken: { type: String },
   instagramBusinessId: { type: String },
   instagramWebhookId: { type: String },
@@ -116,5 +119,7 @@ const UserSchema = new mongoose.Schema({
 
   createdAt: { type: Date, default: Date.now },
 });
+
+UserSchema.index({ googleId: 1 }, { sparse: true });
 
 export default mongoose.models.User || mongoose.model("User", UserSchema);

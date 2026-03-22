@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Loader2, MessageSquare, MessageCircle, AtSign, Play, Heart,
   MousePointer2, Send, CheckCircle2, XCircle, RefreshCw, SkipForward,
@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getAllInteractions } from '@/app/dashboard/actions';
+import useActivityStream from '@/hooks/useActivityStream';
+import LiveIndicator from './LiveIndicator';
 
 const TYPE_CONFIG = {
   comment:    { label: "Comment",    icon: MessageCircle, color: 'var(--info)',    bg: 'var(--info-light)',    border: 'var(--border)' },
@@ -193,6 +195,7 @@ export default function Activity({ aiEnabled = false }) {
   const [activeFilter, setActiveFilter] = useState('all');
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { events: liveEvents, isConnected } = useActivityStream();
 
   useEffect(() => {
     setLoading(true);
@@ -218,7 +221,10 @@ export default function Activity({ aiEnabled = false }) {
     <div className="space-y-8 theme-transition">
       {/* Header */}
       <div className="pb-8" style={{ borderBottom: '1px solid var(--border)' }}>
-        <h2 className="text-5xl font-black tracking-tight leading-none" style={{ color: 'var(--text-primary)' }}>Activity</h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-5xl font-black tracking-tight leading-none" style={{ color: 'var(--text-primary)' }}>Activity</h2>
+          <LiveIndicator isConnected={isConnected} />
+        </div>
         <p className="text-[14px] font-medium mt-2" style={{ color: 'var(--text-placeholder)' }}>
           Full interaction log — up to 100 most recent events.
         </p>
@@ -277,18 +283,37 @@ export default function Activity({ aiEnabled = false }) {
           </div>
         </div>
 
+        {liveEvents.length > 0 && !loading && (
+          <div className="px-4 py-2.5 rounded-xl mb-2 flex items-center gap-2"
+            style={{ backgroundColor: 'var(--success-light)', border: '1px solid var(--success-light)' }}>
+            <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--success)' }} />
+            <span className="text-sm font-medium" style={{ color: 'var(--success-dark)' }}>
+              {liveEvents.length} new event{liveEvents.length > 1 ? 's' : ''} just arrived
+            </span>
+          </div>
+        )}
+
         {loading ? (
           <div>
             {[...Array(6)].map((_, i) => <SkeletonEventRow key={i} />)}
           </div>
-        ) : events.length === 0 ? (
+        ) : events.length === 0 && liveEvents.length === 0 ? (
           <div className="py-20 text-center">
             <ActivityIcon size={36} className="mx-auto mb-3" style={{ color: 'var(--border)' }} />
             <p className="text-sm font-medium" style={{ color: 'var(--text-placeholder)' }}>No activity yet.</p>
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Events appear here once your automation starts receiving interactions.</p>
           </div>
         ) : (
-          events.map((event) => <EventRow key={event._id} event={event} />)
+          <>
+            {liveEvents.map((event) => (
+              <EventRow key={`live-${event.id}`} event={{
+                _id: event.id, type: event.type, from: { username: event.senderUsername },
+                content: { text: event.content }, reply: { status: event.replyStatus },
+                createdAt: event.timestamp,
+              }} />
+            ))}
+            {events.map((event) => <EventRow key={event._id} event={event} />)}
+          </>
         )}
       </div>
     </div>

@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bot, Mail, Lock, Eye, EyeOff, ArrowRight, Instagram } from "lucide-react";
 import { signIn } from "./actions";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
+import { isPersonalEmail } from "@/lib/blockedEmailDomains";
 
 export default function SignInPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [emailBlocked, setEmailBlocked] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -77,6 +80,21 @@ export default function SignInPage() {
             </div>
           )}
 
+          {/* Google Sign In */}
+          <GoogleSignInButton
+            text="signin_with"
+            onSuccess={(data) => {
+              window.location.href = data.isConnected ? "/dashboard" : "/onboarding";
+            }}
+            onError={(err) => setError(err)}
+          />
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
+            <span className="text-sm" style={{ color: 'var(--text-placeholder)' }}>or</span>
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div className="space-y-1.5">
@@ -86,9 +104,10 @@ export default function SignInPage() {
                 <input
                   name="email"
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder="you@company.com"
                   required
                   autoFocus
+                  onChange={(e) => setEmailBlocked(isPersonalEmail(e.target.value))}
                   className="w-full rounded-2xl pl-11 pr-4 py-3.5 text-sm font-medium focus:outline-none focus:ring-2 transition-all"
                   style={{
                     backgroundColor: 'var(--input-bg)',
@@ -98,6 +117,17 @@ export default function SignInPage() {
                   }}
                 />
               </div>
+              {emailBlocked && (
+                <div className="mt-2 p-3 rounded-xl" style={{ backgroundColor: 'var(--warning-light)', border: '1px solid var(--warning-light)' }}>
+                  <p className="text-sm font-medium" style={{ color: 'var(--warning-dark)' }}>Use Google Sign-In</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
+                    Personal email login uses Google. Click the Sign in with Google button above.
+                  </p>
+                </div>
+              )}
+              {!emailBlocked && (
+                <p className="text-xs mt-1" style={{ color: 'var(--text-placeholder)' }}>Work email required. Use Google Sign-In for personal emails.</p>
+              )}
             </div>
 
             {/* Password */}
@@ -133,8 +163,8 @@ export default function SignInPage() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-4 text-white rounded-2xl font-black text-base hover:opacity-90 transition-all shadow-xl flex items-center justify-center gap-3 disabled:opacity-60 mt-2"
+              disabled={loading || emailBlocked}
+              className="w-full py-4 text-white rounded-2xl font-black text-base hover:opacity-90 transition-all shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed mt-2"
               style={{
                 background: 'linear-gradient(to right, var(--primary), var(--primary-dark))',
                 boxShadow: '0 20px 25px -5px var(--primary-glow)',

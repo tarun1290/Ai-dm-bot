@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bot, Mail, Lock, User, AtSign, Eye, EyeOff, ArrowRight, CheckCircle2 } from "lucide-react";
 import { signUp } from "./actions";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
+import { isPersonalEmail } from "@/lib/blockedEmailDomains";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -13,6 +15,7 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [password, setPassword] = useState("");
+  const [emailBlocked, setEmailBlocked] = useState(false);
 
   const passwordStrength = password.length === 0 ? 0 : password.length < 8 ? 1 : password.length < 12 ? 2 : 3;
   const strengthLabel = ["", "Weak", "Good", "Strong"];
@@ -116,6 +119,22 @@ export default function SignUpPage() {
             </div>
           )}
 
+          {/* Google Sign Up */}
+          <GoogleSignInButton
+            text="signup_with"
+            onSuccess={(data) => {
+              if (data.isNewUser) window.location.href = "/onboarding";
+              else window.location.href = data.isConnected ? "/dashboard" : "/onboarding";
+            }}
+            onError={(err) => setError(err)}
+          />
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
+            <span className="text-sm" style={{ color: 'var(--text-placeholder)' }}>or</span>
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Full Name */}
             <div className="space-y-1.5">
@@ -147,8 +166,9 @@ export default function SignUpPage() {
                 <input
                   name="email"
                   type="email"
-                  placeholder="you@example.com"
+                  placeholder="you@company.com"
                   required
+                  onChange={(e) => setEmailBlocked(isPersonalEmail(e.target.value))}
                   className="w-full rounded-2xl pl-11 pr-4 py-3.5 text-sm font-medium focus:outline-none focus:ring-2 transition-all"
                   style={{
                     backgroundColor: 'var(--input-bg)',
@@ -158,6 +178,17 @@ export default function SignUpPage() {
                   }}
                 />
               </div>
+              {emailBlocked && (
+                <div className="mt-2 p-3 rounded-xl" style={{ backgroundColor: 'var(--warning-light)', border: '1px solid var(--warning-light)' }}>
+                  <p className="text-sm font-medium" style={{ color: 'var(--warning-dark)' }}>Work email required</p>
+                  <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
+                    Personal emails like Gmail, Yahoo, and Outlook are not accepted here. Use the Sign in with Google button above instead.
+                  </p>
+                </div>
+              )}
+              {!emailBlocked && (
+                <p className="text-xs mt-1" style={{ color: 'var(--text-placeholder)' }}>Work email required. Use Google Sign-In for personal emails.</p>
+              )}
             </div>
 
             {/* Instagram Handle */}
@@ -262,8 +293,8 @@ export default function SignUpPage() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-4 text-white rounded-2xl font-black text-base hover:opacity-90 transition-all shadow-xl flex items-center justify-center gap-3 disabled:opacity-60 mt-2"
+              disabled={loading || emailBlocked}
+              className="w-full py-4 text-white rounded-2xl font-black text-base hover:opacity-90 transition-all shadow-xl flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed mt-2"
               style={{
                 background: 'linear-gradient(to right, var(--primary), var(--primary-dark))',
                 boxShadow: '0 20px 25px -5px var(--primary-glow)',

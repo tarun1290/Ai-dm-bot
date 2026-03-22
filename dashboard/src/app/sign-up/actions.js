@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 import { generateToken } from "@/lib/jwt";
+import { isPersonalEmail } from "@/lib/blockedEmailDomains";
 
 export async function signUp(formData) {
   const name = (formData.get("name") || "").trim();
@@ -19,6 +20,9 @@ export async function signUp(formData) {
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { error: "Enter a valid email address." };
+  }
+  if (isPersonalEmail(email)) {
+    return { error: 'Please use a work email address. For personal emails like Gmail, use the "Sign in with Google" button instead.' };
   }
   if (password.length < 8) {
     return { error: "Password must be at least 8 characters." };

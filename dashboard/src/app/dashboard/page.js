@@ -46,6 +46,8 @@ import ComingSoonPage from "@/components/ComingSoonPage";
 // import UpgradePrompt from "@/components/UpgradePrompt";
 // [/PLANS DISABLED]
 import { getDashboardStats, deleteAutomation, toggleAutomation } from './actions';
+import useActivityStream from '@/hooks/useActivityStream';
+import LiveIndicator from '@/components/LiveIndicator';
 import { getAiDetectionStats, getTopPerformingLinks, getRecentDetections } from './ai-actions';
 // [PLANS DISABLED] Subscription/gating imports not needed
 // import { getSubscriptionStatus } from './billing-actions';
@@ -255,6 +257,8 @@ function DashboardContent() {
   // const [subData, setSubData] = useState(null);
   // const [trialBannerDismissed, setTrialBannerDismissed] = useState(false);
   // [/PLANS DISABLED]
+  const { events: liveEvents, isConnected } = useActivityStream();
+
   const [stats, setStats] = useState({
     contacts: 0,
     sentToday: 0,
@@ -369,6 +373,17 @@ function DashboardContent() {
                 >
                   Reconnect
                 </button>
+              </div>
+            )}
+
+            {/* Live ticker */}
+            {liveEvents.length > 0 && (
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
+                style={{ backgroundColor: 'var(--success-light)' }}>
+                <LiveIndicator isConnected={isConnected} />
+                <span className="text-sm" style={{ color: 'var(--success-dark)' }}>
+                  Latest: <span className="font-medium">@{liveEvents[0]?.senderUsername}</span> — {liveEvents[0]?.action}
+                </span>
               </div>
             )}
 

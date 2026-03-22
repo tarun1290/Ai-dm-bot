@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import dbConnect from "@/lib/dbConnect";
 import User from "@/models/User";
 import { generateToken } from "@/lib/jwt";
+import { isPersonalEmail } from "@/lib/blockedEmailDomains";
 
 export async function signIn(formData) {
   const email = (formData.get("email") || "").trim().toLowerCase();
@@ -12,6 +13,10 @@ export async function signIn(formData) {
 
   if (!email || !password) {
     return { error: "Email and password are required." };
+  }
+
+  if (isPersonalEmail(email)) {
+    return { error: 'Personal email login is not supported. Please use "Sign in with Google" instead.' };
   }
 
   await dbConnect();
