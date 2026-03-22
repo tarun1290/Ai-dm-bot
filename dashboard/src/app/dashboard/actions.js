@@ -212,6 +212,7 @@ export async function getAccountsFromToken(code) {
     if (!appSecret) throw new Error("Missing META_APP_SECRET in environment variables.");
 
     // Exchange Instagram auth code for short-lived token
+    console.log(`[Instagram Auth] Exchanging code for token, redirectUri: ${redirectUri}`);
     const exchangeRes = await fetch("https://api.instagram.com/oauth/access_token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -225,8 +226,10 @@ export async function getAccountsFromToken(code) {
     });
     const exchangeData = await exchangeRes.json();
     if (exchangeData.error_type || !exchangeData.access_token) {
+      console.error("[Instagram Auth] Token exchange failed:", JSON.stringify(exchangeData));
       throw new Error(exchangeData.error_message || "Instagram token exchange failed.");
     }
+    console.log("[Instagram Auth] Token received, upgrading to long-lived...");
 
     let token = exchangeData.access_token;
     let expiresIn = 3600;

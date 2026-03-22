@@ -1,9 +1,9 @@
 import mongoose from "mongoose";
 
 const InstagramAccountSchema = new mongoose.Schema({
-  userId: { type: String, required: true, index: true },
+  userId: { type: String, required: true },
   instagramUserId: { type: String, required: true },
-  instagramPageScopedId: { type: String, sparse: true },
+  instagramPageScopedId: { type: String, default: null },
   instagramUsername: { type: String },
   instagramProfilePic: { type: String },
   accessToken: { type: String },

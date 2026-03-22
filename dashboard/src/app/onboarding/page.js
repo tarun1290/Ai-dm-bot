@@ -40,12 +40,16 @@ export default function Onboarding() {
   }, []);
 
   // Auto-redirect to dashboard after successful connection
+  // Use window.location.href instead of router.push to ensure the new auth cookie is picked up
   useEffect(() => {
     if (step === "success") {
-      const timer = setTimeout(() => router.push("/dashboard"), 1500);
+      const timer = setTimeout(() => {
+        console.log("[Onboarding] Step 5: Redirecting to dashboard...");
+        window.location.href = "/dashboard";
+      }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [step, router]);
+  }, [step]);
 
   const handleInstagramLogin = () => {
     setError("");
@@ -61,9 +65,11 @@ export default function Onboarding() {
     setLoading(true);
     setError("");
     try {
+      console.log("[Onboarding] Step 1: Exchanging code for token...");
       const res = await getAccountsFromToken(code);
 
       if (res.success) {
+        console.log(`[Onboarding] Step 2: Found ${res.accounts.length} account(s)`);
         if (res.accounts.length === 1) {
           await handleSelectAccount(res.accounts[0]);
         } else if (res.accounts.length > 1) {
@@ -72,9 +78,11 @@ export default function Onboarding() {
           setError("No accounts found. Make sure your Instagram account is a Business or Creator account.");
         }
       } else {
+        console.error("[Onboarding] Token exchange failed:", res.error);
         setError(res.error || "Could not discover accounts. Please try again.");
       }
     } catch (err) {
+      console.error("[Onboarding] Error:", err.message);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -85,14 +93,18 @@ export default function Onboarding() {
     setLoading(true);
     setError("");
     try {
+      console.log(`[Onboarding] Step 3: Saving account @${account.username}...`);
       const res = await saveDiscoveredAccount({ ...account, userToken: account.pageToken });
       if (res.success) {
+        console.log(`[Onboarding] Step 4: Account saved. Cookie set. Redirecting...`);
         setConnectedUsername(account.username);
         setStep("success");
       } else {
+        console.error("[Onboarding] Save failed:", res.error);
         setError(res.error || "Failed to save account. Please try again.");
       }
     } catch (err) {
+      console.error("[Onboarding] Save error:", err.message);
       setError(err.message);
     } finally {
       setLoading(false);
