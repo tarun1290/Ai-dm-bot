@@ -465,7 +465,7 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
         return;
     }
 
-    const igUsername = igAccount?.instagramUsername || botUser?.instagramUsername || '';
+    const igUsername = botUser?.instagramUsername || '';
     const publicReply = automation.replyMessages?.[0] || 'Check your DM! 📩';
 
     // ── Step 1: Public reply to the comment ──────────────────────────────────
