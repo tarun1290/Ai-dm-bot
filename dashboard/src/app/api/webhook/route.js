@@ -281,23 +281,48 @@ async function deliverContent(recipientId, token, automation, igUsername) {
     }
 }
 
-// Check if a specific user is in the business account's followers list.
-// Paginates through up to maxPages x 200 = 2000 followers.
-// For larger accounts this is a best-effort check — if the user isn't found
-// within the first 2000 followers, they are treated as a non-follower.
-async function checkIsFollower(commenterId, token, maxPages = 10) {
-    let url = `${IG_BASE}/me/followers?fields=id&limit=200&access_token=${token}`;
-    for (let page = 0; page < maxPages; page++) {
-        try {
+// Check if a user follows the business account.
+// Primary method: query the user's profile for is_user_follow_business field.
+// Fallback: paginate through /me/followers (less reliable, for older API versions).
+async function checkIsFollower(userIgScopedId, token) {
+    // Method 1: Direct field check (most reliable)
+    try {
+        const url = `${IG_BASE}/${userIgScopedId}?fields=name,username,is_user_follow_business&access_token=${token}`;
+        console.log(`[FollowCheck] Checking ${userIgScopedId} via is_user_follow_business`);
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.error) {
+            console.warn('[FollowCheck] Field not supported:', data.error.message);
+            // Fall through to method 2
+        } else {
+            console.log(`[FollowCheck] Result for ${data.username || userIgScopedId}: is_user_follow_business=${data.is_user_follow_business}`);
+            return data.is_user_follow_business === true;
+        }
+    } catch (e) {
+        console.error('[FollowCheck] Method 1 error:', e.message);
+    }
+
+    // Method 2: Paginate /me/followers (fallback)
+    try {
+        let url = `${IG_BASE}/me/followers?fields=id&limit=200&access_token=${token}`;
+        for (let page = 0; page < 5; page++) {
             const res = await fetch(url);
             if (!res.ok) break;
             const data = await res.json();
-            if (data.error) { console.warn('[FollowCheck] API error:', data.error.message); break; }
-            if (data.data?.some(f => f.id === commenterId)) return true;
+            if (data.error) { console.warn('[FollowCheck] Followers API error:', data.error.message); break; }
+            if (data.data?.some(f => f.id === userIgScopedId)) {
+                console.log(`[FollowCheck] Found in followers list (page ${page})`);
+                return true;
+            }
             if (!data.paging?.next) break;
             url = data.paging.next;
-        } catch (e) { console.error('[FollowCheck] Error:', e.message); break; }
+        }
+    } catch (e) {
+        console.error('[FollowCheck] Method 2 error:', e.message);
     }
+
+    console.log(`[FollowCheck] ${userIgScopedId} NOT found as follower`);
     return false;
 }
 
@@ -1159,7 +1184,8 @@ export async function POST(request) {
                     const commenterIUI = payload.slice('CONFIRM_INTEREST:'.length);
 
                     if (pbAutomation?.requireFollow) {
-                        const isFollower = await checkIsFollower(commenterIUI, token);
+                        // Use senderId (DM sender IG-scoped ID) for follower check — more reliable than commenterIUI
+                        const isFollower = await checkIsFollower(senderId, token);
 
                         if (isFollower) {
                             // ── Quota check before delivering content ─────────
@@ -1187,9 +1213,12 @@ export async function POST(request) {
                                 reply: { privateDM: pbAutomation.deliveryMessage || pbAutomation.dmContent, status: 'sent' },
                             });
                         } else {
-                            const followPromptText = pbAutomation.followPromptDM
-                                || `Hey! It seems you're not following me yet\nWould love it if you could check out my profile and hit follow 😊`;
-                            const followButtonTitle = pbAutomation.followButtonText || "I'm following ✅";
+                            // Read custom follower gate messages from DB config (with fallbacks to legacy fields)
+                            const fg = pbAutomation.followerGate || {};
+                            const nfMsg = fg.nonFollowerMessage || {};
+                            const followPromptText = (nfMsg.subtitle || pbAutomation.followPromptDM || `Hey! It seems you're not following me yet\nFollow @${igUsername} and tap the button below!`).replace(/\{username\}/g, igUsername);
+                            const followButtonTitle = nfMsg.confirmFollowLabel || pbAutomation.followButtonText || "I'm following ✅";
+                            const visitLabel = nfMsg.visitProfileLabel || "Visit Profile";
 
                             try {
                                 const url = new URL(`${IG_BASE}/me/messages`);
@@ -1209,7 +1238,7 @@ export async function POST(request) {
                                                         {
                                                             type: 'web_url',
                                                             url: `https://instagram.com/${igUsername}`,
-                                                            title: 'Visit Profile'
+                                                            title: visitLabel
                                                         },
                                                         {
                                                             type: 'postback',
@@ -1268,21 +1297,27 @@ export async function POST(request) {
                 // ── Follow-gate confirmation postback ─────────────────────────
                 if (payload?.startsWith('CHECK_FOLLOW:')) {
                     const commenterIUI = payload.slice('CHECK_FOLLOW:'.length);
-                    const isFollower = await checkIsFollower(commenterIUI, token);
+                    // Use senderId (the DM sender's IG-scoped ID) — not commenterIUI which may be app-scoped
+                    // Also add a delay — Instagram's follow graph can take a moment to update
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    const isFollower = await checkIsFollower(senderId, token);
 
                     if (isFollower && pbAutomation?.isActive) {
                         // ── Quota check before delivering content ─────────
                         const fgQuota = await enforceDmQuota(botUser, accountId, igBusinessId);
                         if (!fgQuota.allowed) {
                             await saveEvent({
-                                type: 'postback',
-                                accountId,
-                                targetBusinessId: igBusinessId,
+                                type: 'postback', accountId, targetBusinessId: igBusinessId,
                                 from: { id: senderId, username: pbProfile?.username, name: pbProfile?.name },
-                                content: { text: title },
-                                reply: { status: 'quota_exceeded' },
+                                content: { text: title }, reply: { status: 'quota_exceeded' },
                             });
                             continue;
+                        }
+                        // Optional success message before content delivery
+                        const fgSuccess = pbAutomation?.followerGate?.successMessage;
+                        if (fgSuccess?.enabled && fgSuccess.title) {
+                            const successText = `${fgSuccess.title}\n\n${fgSuccess.subtitle || ''}`.replace(/\{username\}/g, igUsername).trim();
+                            try { await sendDM(senderId, successText, token); } catch { /* non-fatal */ }
                         }
                         await deliverContent(senderId, token, pbAutomation, igUsername);
                         await trackDmUsage(botUser, fgQuota.source);
@@ -1297,45 +1332,64 @@ export async function POST(request) {
                             reply: { privateDM: pbAutomation?.deliveryMessage || pbAutomation?.dmContent, status: 'sent' },
                         });
                     } else {
-                        const notYetText = `Hmm, I can't see your follow yet 🤔\n\nPlease make sure you've followed @${igUsername} and try again!`;
-                        const followButtonTitle = pbAutomation?.followButtonText || "I'm following ✅";
+                        // Check retry count — after 3 failed attempts, deliver content anyway
+                        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+                        const retryCount = await Event.countDocuments({
+                            accountId, "from.id": senderId, type: "postback",
+                            "content.text": { $regex: /CHECK_FOLLOW|I'm following/i },
+                            createdAt: { $gte: oneHourAgo },
+                        }).catch(() => 0);
 
-                        try {
-                            const url = new URL(`${IG_BASE}/me/messages`);
-                            url.searchParams.set('access_token', token);
-                            await fetch(url.toString(), {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    recipient: { id: senderId },
-                                    message: {
-                                        attachment: {
-                                            type: 'template',
-                                            payload: {
-                                                template_type: 'button',
-                                                text: notYetText,
-                                                buttons: [
-                                                    {
-                                                        type: 'web_url',
-                                                        url: `https://instagram.com/${igUsername}`,
-                                                        title: 'Visit Profile'
-                                                    },
-                                                    {
-                                                        type: 'postback',
-                                                        title: followButtonTitle,
-                                                        payload: `CHECK_FOLLOW:${commenterIUI}`
-                                                    }
-                                                ]
+                        if (retryCount >= 3) {
+                            // Too many retries — deliver content regardless
+                            console.log(`[FollowGate] @${pbProfile?.username || senderId} hit retry limit (${retryCount}) — delivering content`);
+                            await sendDM(senderId, "We're having trouble verifying your follow, but here's your content anyway! 🎉", token);
+                            if (pbAutomation?.isActive) {
+                                await deliverContent(senderId, token, pbAutomation, igUsername);
+                            }
+                        } else {
+                            const fg2 = pbAutomation?.followerGate || {};
+                            const vfMsg = fg2.verificationFailedMessage || {};
+                            const notYetText = (vfMsg.subtitle || `Hmm, I can't see your follow yet 🤔\n\nPlease make sure you've followed @${igUsername} and try again!`).replace(/\{username\}/g, igUsername);
+                            const followButtonTitle = fg2.nonFollowerMessage?.confirmFollowLabel || pbAutomation?.followButtonText || "I'm following ✅";
+
+                            try {
+                                const url = new URL(`${IG_BASE}/me/messages`);
+                                url.searchParams.set('access_token', token);
+                                await fetch(url.toString(), {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        recipient: { id: senderId },
+                                        message: {
+                                            attachment: {
+                                                type: 'template',
+                                                payload: {
+                                                    template_type: 'button',
+                                                    text: notYetText,
+                                                    buttons: [
+                                                        {
+                                                            type: 'web_url',
+                                                            url: `https://instagram.com/${igUsername}`,
+                                                            title: 'Visit Profile'
+                                                        },
+                                                        {
+                                                            type: 'postback',
+                                                            title: followButtonTitle,
+                                                            payload: `CHECK_FOLLOW:${commenterIUI}`
+                                                        }
+                                                    ]
+                                                }
                                             }
                                         }
-                                    }
-                                })
-                            });
-                        } catch (e) {
-                            console.error('[FollowGate Retry Error]', e.message);
+                                    })
+                                });
+                            } catch (e) {
+                                console.error('[FollowGate Retry Error]', e.message);
+                            }
                         }
 
-                        console.log(`[FollowGate ❌] @${pbProfile?.username || senderId} not yet following — re-sent buttons`);
+                        console.log(`[FollowGate ❌] @${pbProfile?.username || senderId} not following (attempt ${retryCount + 1})`);
                         await saveEvent({
                             type: 'postback',
                             accountId,

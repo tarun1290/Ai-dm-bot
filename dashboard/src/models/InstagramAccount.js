@@ -29,6 +29,32 @@ const InstagramAccountSchema = new mongoose.Schema({
     followPromptPublicReply: { type: String },
     followPromptDM: { type: String },
     followButtonText: { type: String, default: "I'm following now! ✓" },
+    followerGate: {
+      enabled: { type: Boolean, default: false },
+      appliesTo: {
+        commentToDm: { type: Boolean, default: true },
+        reelShareReply: { type: Boolean, default: true },
+        mentionReply: { type: Boolean, default: true },
+      },
+      nonFollowerMessage: {
+        title: { type: String, default: "Follow us to unlock! 🔓" },
+        subtitle: { type: String, default: "Follow @{username} to get access to this content. Once you follow, tap the button below!" },
+        visitProfileLabel: { type: String, default: "Visit Profile" },
+        confirmFollowLabel: { type: String, default: "I'm following now! ✔️" },
+      },
+      verificationFailedMessage: {
+        title: { type: String, default: "Hmm, I can't see your follow yet 🤔" },
+        subtitle: { type: String, default: "Please make sure you've followed @{username} and try again!" },
+      },
+      maxRetries: { type: Number, default: 3 },
+      successMessage: {
+        enabled: { type: Boolean, default: false },
+        title: { type: String, default: "Thanks for following! 🎉" },
+        subtitle: { type: String, default: "Here's your content:" },
+      },
+      skipForReturningUsers: { type: Boolean, default: false },
+      skipForVerifiedFollowers: { type: Boolean, default: true },
+    },
     mentionsEnabled: { type: Boolean, default: false },
     mentionReplyMessage: { type: String, default: "Thanks for the mention! 🙌" },
     reelShareEnabled: { type: Boolean, default: false },

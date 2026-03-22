@@ -94,6 +94,15 @@ export default function Automation({ aiEnabled = false }) {
     buttonText: "Yes", linkUrl: "", deliveryMessage: "", deliveryButtonText: "",
     requireFollow: false, followPromptPublicReply: "", followPromptDM: "",
     followButtonText: "I'm following now! ✓",
+    followerGate: {
+      enabled: false,
+      appliesTo: { commentToDm: true, reelShareReply: true, mentionReply: true },
+      nonFollowerMessage: { title: "Follow us to unlock! 🔓", subtitle: "Follow @{username} to get access to this content. Once you follow, tap the button below!", visitProfileLabel: "Visit Profile", confirmFollowLabel: "I'm following now! ✔️" },
+      verificationFailedMessage: { title: "Hmm, I can't see your follow yet 🤔", subtitle: "Please make sure you've followed @{username} and try again!" },
+      maxRetries: 3,
+      successMessage: { enabled: false, title: "Thanks for following! 🎉", subtitle: "Here's your content:" },
+      skipForReturningUsers: false, skipForVerifiedFollowers: true,
+    },
     mentionsEnabled: false, mentionReplyMessage: "Thanks for the mention! 🙌",
     reelShareEnabled: false, reelShareMessage: "Hey! 👋 Thanks for sharing!",
     reelShareLinkUrl: "", reelShareButtonText: "Check it out 🚀",
@@ -127,6 +136,7 @@ export default function Automation({ aiEnabled = false }) {
               deliveryButtonText: a.deliveryButtonText || "", requireFollow: a.requireFollow ?? false,
               followPromptPublicReply: a.followPromptPublicReply || "", followPromptDM: a.followPromptDM || "",
               followButtonText: a.followButtonText || "I'm following now! ✓",
+              followerGate: a.followerGate ? { ...config.followerGate, ...a.followerGate, enabled: a.followerGate.enabled ?? a.requireFollow ?? false } : config.followerGate,
               mentionsEnabled: a.mentionsEnabled ?? false, mentionReplyMessage: a.mentionReplyMessage || "Thanks for the mention! 🙌",
               reelShareEnabled: a.reelShareEnabled ?? false, reelShareMessage: a.reelShareMessage || "Hey! 👋 Thanks for sharing!",
               reelShareLinkUrl: a.reelShareLinkUrl || "", reelShareButtonText: a.reelShareButtonText || "Check it out 🚀",
@@ -359,56 +369,163 @@ export default function Automation({ aiEnabled = false }) {
           )}
 
           {/* ── Follower Gate ──────────────────────────────────────────── */}
-          {activeTab === "follower" && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold" style={{ color: '#18181B' }}>Follower Gate</h2>
-                  <p className="text-sm" style={{ color: '#71717A' }}>Only DM users who follow you — drive real follows first</p>
-                </div>
-                <TabToggle enabled={config.requireFollow} onChange={(v) => update('requireFollow', v)} />
-              </div>
-              <div style={{ opacity: config.requireFollow ? 1 : 0.5 }}>
-                <SectionBox title="Non-follower response">
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-medium" style={{ color: '#71717A' }}>Public reply to non-followers</label>
-                        <CharCount value={config.followPromptPublicReply} max={300} />
-                      </div>
-                      <textarea value={config.followPromptPublicReply} onChange={(e) => update('followPromptPublicReply', e.target.value)} rows={2}
-                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
-                        style={{ border: '1px solid #E4E4E7', color: '#18181B' }} placeholder="Follow us first to get your content! 🔒" maxLength={300} />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-medium" style={{ color: '#71717A' }}>DM sent to non-followers</label>
-                        <CharCount value={config.followPromptDM} max={640} />
-                      </div>
-                      <textarea value={config.followPromptDM} onChange={(e) => update('followPromptDM', e.target.value)} rows={2}
-                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
-                        style={{ border: '1px solid #E4E4E7', color: '#18181B' }} placeholder="Hey! Follow us and tap the button below to get your content." maxLength={640} />
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-medium" style={{ color: '#71717A' }}>Confirmation button text</label>
-                        <CharCount value={config.followButtonText} max={20} />
-                      </div>
-                      <input type="text" value={config.followButtonText} onChange={(e) => update('followButtonText', e.target.value)}
-                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
-                        style={{ border: '1px solid #E4E4E7', color: '#18181B' }} placeholder="I'm following now! ✓" maxLength={20} />
-                    </div>
+          {activeTab === "follower" && (() => {
+            const fg = config.followerGate || {};
+            const nf = fg.nonFollowerMessage || {};
+            const vf = fg.verificationFailedMessage || {};
+            const sm = fg.successMessage || {};
+            const uFg = (path, val) => {
+              const keys = path.split('.');
+              setConfig(prev => {
+                const newFg = JSON.parse(JSON.stringify(prev.followerGate || {}));
+                let obj = newFg;
+                for (let i = 0; i < keys.length - 1; i++) { if (!obj[keys[i]]) obj[keys[i]] = {}; obj = obj[keys[i]]; }
+                obj[keys[keys.length - 1]] = val;
+                return { ...prev, followerGate: newFg, requireFollow: newFg.enabled ?? prev.requireFollow };
+              });
+            };
+            const ign = instaData.username || 'youraccount';
+            return (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold" style={{ color: '#18181B' }}>Follower Gate</h2>
+                    <p className="text-sm" style={{ color: '#71717A' }}>Require users to follow before receiving content</p>
                   </div>
-                </SectionBox>
-                <SectionBox title="How it works">
-                  <p className="text-xs leading-relaxed" style={{ color: '#71717A' }}>
-                    When a non-follower triggers an automation, they receive the follow prompt DM instead of the content. Once they follow your account and tap the confirmation button, the original content DM is sent automatically.
-                  </p>
-                </SectionBox>
+                  <TabToggle enabled={fg.enabled || config.requireFollow} onChange={(v) => { uFg('enabled', v); update('requireFollow', v); }} />
+                </div>
+
+                <div style={{ opacity: (fg.enabled || config.requireFollow) ? 1 : 0.5 }}>
+                  {/* Applies to */}
+                  <SectionBox title="Applies to">
+                    <div className="flex flex-wrap gap-4">
+                      {[['commentToDm', 'Comment to DM'], ['reelShareReply', 'Reel share replies'], ['mentionReply', 'Mention replies']].map(([key, label]) => (
+                        <label key={key} className="flex items-center gap-2 text-sm" style={{ color: '#18181B' }}>
+                          <input type="checkbox" checked={fg.appliesTo?.[key] !== false} onChange={(e) => uFg(`appliesTo.${key}`, e.target.checked)} style={{ accentColor: '#4F46E5' }} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </SectionBox>
+
+                  {/* Non-follower message */}
+                  <SectionBox title="Non-follower DM">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-xs font-medium" style={{ color: '#71717A' }}>Message text</label>
+                            <CharCount value={nf.subtitle} max={640} />
+                          </div>
+                          <textarea value={nf.subtitle || ""} onChange={(e) => uFg('nonFollowerMessage.subtitle', e.target.value)} rows={3}
+                            className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
+                            style={{ border: '1px solid #E4E4E7', color: '#18181B' }} maxLength={640}
+                            placeholder={`Follow @${ign} to get access to this content!`} />
+                          <p className="text-xs mt-1" style={{ color: '#A1A1AA' }}>Use <span style={{ color: '#4F46E5' }}>{'{username}'}</span> to insert your IG handle</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: '#71717A' }}>Profile button label</label>
+                            <input type="text" value={nf.visitProfileLabel || "Visit Profile"} onChange={(e) => uFg('nonFollowerMessage.visitProfileLabel', e.target.value)}
+                              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                              style={{ border: '1px solid #E4E4E7', color: '#18181B' }} maxLength={20} />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: '#71717A' }}>Confirm button label</label>
+                            <input type="text" value={nf.confirmFollowLabel || "I'm following now! ✔️"} onChange={(e) => uFg('nonFollowerMessage.confirmFollowLabel', e.target.value)}
+                              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                              style={{ border: '1px solid #E4E4E7', color: '#18181B' }} maxLength={20} />
+                          </div>
+                        </div>
+                      </div>
+                      <DmPreview title="Follow to unlock 🔓"
+                        subtitle={(nf.subtitle || `Follow @${ign} to get access!`).replace(/\{username\}/g, ign)}
+                        buttonLabel={nf.confirmFollowLabel || "I'm following now! ✔️"} />
+                    </div>
+                  </SectionBox>
+
+                  {/* Verification failed */}
+                  <SectionBox title="Verification failed message">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-xs font-medium" style={{ color: '#71717A' }}>Retry message text</label>
+                            <CharCount value={vf.subtitle} max={640} />
+                          </div>
+                          <textarea value={vf.subtitle || ""} onChange={(e) => uFg('verificationFailedMessage.subtitle', e.target.value)} rows={2}
+                            className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
+                            style={{ border: '1px solid #E4E4E7', color: '#18181B' }} maxLength={640}
+                            placeholder={`Hmm, I can't see your follow yet. Make sure you've followed @${ign} and try again!`} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium mb-1.5 block" style={{ color: '#71717A' }}>Max retries before auto-delivering</label>
+                          <input type="number" value={fg.maxRetries ?? 3} onChange={(e) => uFg('maxRetries', Number(e.target.value))} min={1} max={10}
+                            className="w-20 rounded-lg px-3 py-2 text-sm outline-none"
+                            style={{ border: '1px solid #E4E4E7', color: '#18181B' }} />
+                          <p className="text-xs mt-1" style={{ color: '#A1A1AA' }}>After this many failed attempts, content is sent anyway</p>
+                        </div>
+                      </div>
+                      <DmPreview title="Can't see your follow yet 🤔"
+                        subtitle={(vf.subtitle || `Please make sure you've followed @${ign} and try again!`).replace(/\{username\}/g, ign)}
+                        buttonLabel={nf.confirmFollowLabel || "I'm following now! ✔️"} />
+                    </div>
+                  </SectionBox>
+
+                  {/* Success message */}
+                  <SectionBox title="Success message (optional)">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-sm font-medium" style={{ color: '#18181B' }}>Send a success message before content</p>
+                        <p className="text-xs" style={{ color: '#A1A1AA' }}>Shown right before the content DM is delivered</p>
+                      </div>
+                      <TabToggle enabled={sm.enabled} onChange={(v) => uFg('successMessage.enabled', v)} />
+                    </div>
+                    {sm.enabled && (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                          <div>
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: '#71717A' }}>Title</label>
+                            <input type="text" value={sm.title || ""} onChange={(e) => uFg('successMessage.title', e.target.value)}
+                              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                              style={{ border: '1px solid #E4E4E7', color: '#18181B' }} placeholder="Thanks for following! 🎉" maxLength={80} />
+                          </div>
+                          <div>
+                            <label className="text-xs font-medium mb-1.5 block" style={{ color: '#71717A' }}>Subtitle</label>
+                            <input type="text" value={sm.subtitle || ""} onChange={(e) => uFg('successMessage.subtitle', e.target.value)}
+                              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                              style={{ border: '1px solid #E4E4E7', color: '#18181B' }} placeholder="Here's your content:" />
+                          </div>
+                        </div>
+                        <DmPreview title={sm.title || "Thanks for following! 🎉"} subtitle={sm.subtitle || "Here's your content:"} buttonLabel="" />
+                      </div>
+                    )}
+                  </SectionBox>
+
+                  {/* Bypass rules */}
+                  <SectionBox title="Bypass rules">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm" style={{ color: '#18181B' }}>Skip for verified followers</p>
+                          <p className="text-xs" style={{ color: '#A1A1AA' }}>If already confirmed in a previous interaction</p>
+                        </div>
+                        <TabToggle enabled={fg.skipForVerifiedFollowers !== false} onChange={(v) => uFg('skipForVerifiedFollowers', v)} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm" style={{ color: '#18181B' }}>Skip for returning users</p>
+                          <p className="text-xs" style={{ color: '#A1A1AA' }}>If they&apos;ve passed the gate before</p>
+                        </div>
+                        <TabToggle enabled={fg.skipForReturningUsers} onChange={(v) => uFg('skipForReturningUsers', v)} />
+                      </div>
+                    </div>
+                  </SectionBox>
+                </div>
+                <SaveButton onClick={handlePublish} loading={publishing} />
               </div>
-              <SaveButton onClick={handlePublish} loading={publishing} />
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── Comment Reply ─────────────────────────────────────────── */}
           {activeTab === "reply" && (
