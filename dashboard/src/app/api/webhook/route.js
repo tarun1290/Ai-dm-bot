@@ -604,52 +604,116 @@ export async function POST(request) {
             continue;
         }
 
-        // Look up the InstagramAccount — search ALL possible ID fields
+        // ── Account lookup with auto-link for webhook IGBA ID mismatch ──────
+        // OAuth stores the app-scoped Instagram User ID (from /me).
+        // Webhooks send the Instagram Business Account (IGBA) ID in entry.id.
+        // These are different IDs for the same account. Auto-link on first webhook.
+
+        // Step A: Direct match on either stored ID field
         let igAccount = await InstagramAccount.findOne({
             $or: [
                 { instagramPageScopedId: targetId },
                 { instagramUserId: targetId },
-            ]
+            ],
+            isConnected: true,
         }).catch(() => null);
 
-        // If not found with isConnected, try without it (may have been disconnected by mistake)
+        // Also check disconnected accounts (may have been disconnected by mistake)
         if (!igAccount) {
             igAccount = await InstagramAccount.findOne({
                 $or: [
                     { instagramPageScopedId: targetId },
                     { instagramUserId: targetId },
-                ]
+                ],
             }).catch(() => null);
-            if (igAccount && !igAccount.isConnected) {
-                console.log(`[Webhook] Found account @${igAccount.instagramUsername} but isConnected=false — processing anyway`);
+            if (igAccount) {
+                console.log(`[Webhook] Found @${igAccount.instagramUsername} but isConnected=${igAccount.isConnected}`);
             }
         }
 
+        // Step B: Auto-link — if no direct match, try to link by username via API
+        if (!igAccount) {
+            console.log(`[Webhook] No direct match for ID ${targetId}. Attempting auto-link...`);
+            const anyAccount = await InstagramAccount.findOne({
+                isConnected: true, accessToken: { $exists: true, $ne: null },
+            }).catch(() => null);
+
+            if (anyAccount) {
+                try {
+                    const profileRes = await fetch(
+                        `https://graph.instagram.com/v25.0/${targetId}?fields=username&access_token=${anyAccount.accessToken}`
+                    );
+                    const profileData = await profileRes.json();
+
+                    if (profileData.username) {
+                        console.log(`[Webhook] Webhook ID ${targetId} belongs to @${profileData.username}`);
+                        igAccount = await InstagramAccount.findOne({
+                            instagramUsername: profileData.username,
+                            isConnected: true,
+                        }).catch(() => null);
+
+                        if (igAccount) {
+                            igAccount.instagramPageScopedId = targetId;
+                            await igAccount.save();
+                            console.log(`[Webhook] AUTO-LINKED: Stored IGBA ID ${targetId} for @${igAccount.instagramUsername} (was uid=${igAccount.instagramUserId})`);
+                        }
+                    } else {
+                        console.log(`[Webhook] Could not fetch username for ID ${targetId}:`, profileData.error?.message || 'unknown');
+                    }
+                } catch (e) {
+                    console.error(`[Webhook] Auto-link API failed:`, e.message);
+                }
+            }
+        }
+
+        // Step C: Single-account auto-link fallback
+        if (!igAccount) {
+            const connectedAccounts = await InstagramAccount.find({ isConnected: true }).lean();
+
+            if (connectedAccounts.length === 1) {
+                console.log(`[Webhook] Only 1 connected account exists (@${connectedAccounts[0].instagramUsername}). Auto-linking.`);
+                igAccount = await InstagramAccount.findById(connectedAccounts[0]._id);
+                igAccount.instagramPageScopedId = targetId;
+                await igAccount.save();
+                console.log(`[Webhook] AUTO-LINKED (single account): ${targetId} → @${igAccount.instagramUsername}`);
+            } else if (connectedAccounts.length > 1) {
+                // Multiple accounts — try to find one that hasn't been linked yet
+                const unlinked = connectedAccounts.filter(a =>
+                    !a.instagramPageScopedId || a.instagramPageScopedId === a.instagramUserId
+                );
+                if (unlinked.length === 1) {
+                    igAccount = await InstagramAccount.findById(unlinked[0]._id);
+                    igAccount.instagramPageScopedId = targetId;
+                    await igAccount.save();
+                    console.log(`[Webhook] AUTO-LINKED (only unlinked account): ${targetId} → @${igAccount.instagramUsername}`);
+                }
+            }
+        }
+
+        // Step D: Legacy User model fallback
         let botUser = null;
         if (igAccount) {
             botUser = await User.findOne({ userId: igAccount.userId }).catch(() => null);
         } else {
-            // Legacy fallback: lookup by User fields (pre-migration)
             botUser = await User.findOne({
                 $or: [
                     { instagramWebhookId: targetId },
-                    { instagramBusinessId: targetId }
-                ]
+                    { instagramBusinessId: targetId },
+                ],
             }).catch(() => null);
         }
 
-        // Resolve token and automation from InstagramAccount (preferred) or User (legacy)
+        // Final check — give up if no account found
         const token = igAccount?.accessToken || botUser?.instagramAccessToken;
         if (!token) {
-            // Diagnostic logging — helps debug ID mismatches
-            console.error(`[Webhook] No active account for ID: ${targetId}`);
+            console.error(`[Webhook] FAILED to find account for ID: ${targetId}`);
             try {
                 const allAccounts = await InstagramAccount.find({}, {
-                    instagramUserId: 1, instagramPageScopedId: 1, instagramUsername: 1, isConnected: 1
+                    instagramUserId: 1, instagramPageScopedId: 1, instagramUsername: 1, isConnected: 1,
                 }).lean();
                 console.error(`[Webhook] DB has ${allAccounts.length} accounts:`,
-                    allAccounts.map(a => `@${a.instagramUsername || '?'} uid=${a.instagramUserId} psid=${a.instagramPageScopedId} connected=${a.isConnected}`).join(' | '));
-            } catch { /* non-fatal logging */ }
+                    allAccounts.map(a => `@${a.instagramUsername || '?'} uid=${a.instagramUserId} psid=${a.instagramPageScopedId} conn=${a.isConnected}`).join(' | '));
+            } catch { /* non-fatal */ }
             continue;
         }
 
