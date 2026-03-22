@@ -470,7 +470,26 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
 
     // ── Step 1: Public reply to the comment ──────────────────────────────────
     if (automation.replyEnabled) {
-        try { await replyToComment(commentId, publicReply, token, mediaId); } catch (e) { console.error('[Public Fail]', e.message); }
+        // Rate limit: Instagram allows ~60 comment replies per hour
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const recentCommentReplies = await Event.countDocuments({
+            accountId, type: 'comment', 'reply.publicReply': { $exists: true, $ne: null },
+            createdAt: { $gte: oneHourAgo },
+        }).catch(() => 0);
+
+        if (recentCommentReplies >= 55) {
+            console.warn(`[CommentReply] Rate limit approaching (${recentCommentReplies}/hr). Skipping public reply.`);
+        } else {
+            const replyText = publicReply
+                .replace('{{username}}', fromInfo?.username ? `@${fromInfo.username}` : '')
+                .replace('{{keyword}}', '');
+            try {
+                const replyResult = await replyToComment(commentId, replyText, token, mediaId);
+                console.log(`[CommentReply] ✅ Public reply sent to comment ${commentId}: "${replyText}"`);
+            } catch (e) {
+                console.error('[CommentReply] ⚠️ Failed (DM will still send):', e.message);
+            }
+        }
     }
 
     // ── Step 2: Send initial DM — greeting with "Yes" confirmation button ────
