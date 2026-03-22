@@ -229,7 +229,14 @@ export const dynamic = "force-dynamic";
 //   if (!subscriptionId) return;
 //   const user = await User.findOne({ "subscription.dodoSubscriptionId": subscriptionId });
 //   if (!user) return;
-//   await User.findByIdAndUpdate(user._id, { "subscription.status": "past_due" });
+//   await User.findByIdAndUpdate(user._id, {
+//     "subscription.status": "past_due",
+//     "subscription.onHoldAt": new Date(),
+//     "subscription.onHoldReason": data.failure_reason || "payment_failed",
+//   });
+//   // TODO: Send email to user asking them to update payment method
+//   // const updateUrl = `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?updatePayment=true`;
+//   // await sendEmail(user.email, 'subscription_on_hold', { updatePaymentUrl: updateUrl });
 //   console.log(`[DodoWH] Subscription on hold (past_due) for user ${user.userId}`);
 // }
 //
@@ -267,14 +274,22 @@ export const dynamic = "force-dynamic";
 //   const user = await User.findOne({ "subscription.dodoSubscriptionId": subscriptionId });
 //   if (!user) return;
 //   const newPlan = resolvePlanFromProductId(data.product_id);
+//   const oldPlan = user.subscription?.plan;
 //   if (newPlan) {
+//     const PLAN_DM_LIMITS = { silver: 10000, gold: 50000, platinum: Infinity };
+//     const PLAN_ACCOUNT_LIMITS = { silver: 1, gold: 3, platinum: 5 };
 //     await User.findByIdAndUpdate(user._id, {
 //       "subscription.plan": newPlan,
+//       "subscription.status": "active",
 //       "subscription.dodoProductId": data.product_id,
+//       "subscription.planChangedAt": new Date(),
+//       "subscription.previousPlan": oldPlan,
 //       "subscription.downgradeToPlan": null,
 //       "subscription.downgradeEffectiveDate": null,
+//       "subscription.dmLimit": PLAN_DM_LIMITS[newPlan] || Infinity,
+//       "subscription.maxAccounts": PLAN_ACCOUNT_LIMITS[newPlan] || 1,
 //     });
-//     console.log(`[DodoWH] Plan changed to ${newPlan} for user ${user.userId}`);
+//     console.log(`[DodoWH] Plan changed ${oldPlan} → ${newPlan} for user ${user.userId}`);
 //   }
 // }
 //

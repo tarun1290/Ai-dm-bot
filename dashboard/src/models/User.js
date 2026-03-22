@@ -103,6 +103,15 @@ const UserSchema = new mongoose.Schema({
     downgradeToPlan: { type: String },
     downgradeEffectiveDate: { type: Date },
     cancellationReason: { type: String, enum: ["too_expensive", "not_using", "switching_competitor", "missing_feature", "other", null] },
+    // [PAYMENTS DISABLED] Advanced subscription lifecycle fields
+    onHoldAt: { type: Date },
+    onHoldReason: { type: String },
+    planChangedAt: { type: Date },
+    previousPlan: { type: String },
+    dmLimit: { type: Number },
+    maxAccounts: { type: Number },
+    creditBalance: { type: Number, default: 0 },
+    // [/PAYMENTS DISABLED]
   },
 
   // ── Usage tracking ──────────────────────────────────────────────────────

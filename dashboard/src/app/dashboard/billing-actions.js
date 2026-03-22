@@ -470,3 +470,212 @@ export async function getLoggedInPlan() {
     return { loggedIn: false };
   }
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// [PAYMENTS DISABLED] Advanced subscription lifecycle
+// Uncomment when ready to enable Dodo Payments
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── Plan configuration maps ─────────────────────────────────────────────
+// const PLAN_TO_DODO_PRODUCT = {
+//   silver: process.env.DODO_SILVER_PRODUCT_ID,
+//   gold: process.env.DODO_GOLD_PRODUCT_ID,
+//   platinum: process.env.DODO_PLATINUM_PRODUCT_ID,
+// };
+//
+// const PLAN_TIERS = { early_access: 0, trial: 0, silver: 1, gold: 2, platinum: 3 };
+//
+// const PLAN_DM_LIMITS = {
+//   early_access: Infinity, trial: Infinity,
+//   silver: 10000, gold: 50000, platinum: Infinity,
+// };
+//
+// const PLAN_ACCOUNT_LIMITS = {
+//   early_access: 5, trial: 1, silver: 1, gold: 3, platinum: 5,
+// };
+
+// ── Update payment method ───────────────────────────────────────────────
+// export async function updatePaymentMethod() {
+//   const userId = await getOwnerId();
+//   await dbConnect();
+//   const user = await User.findOne({ userId });
+//   if (!user?.subscription?.dodoSubscriptionId) return { error: "No active subscription" };
+//
+//   try {
+//     const { getDodo } = await import("@/lib/dodo");
+//     const dodo = getDodo();
+//     const response = await dodo.subscriptions.updatePaymentMethod(
+//       user.subscription.dodoSubscriptionId,
+//       { type: "new", return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?paymentUpdated=true` }
+//     );
+//     if (response.payment_id) {
+//       console.log("[Dodo] Charge created for remaining dues:", response.payment_id);
+//       return { paymentLink: response.payment_link, paymentId: response.payment_id };
+//     }
+//     return { success: true };
+//   } catch (error) {
+//     console.error("[Dodo] Update payment method error:", error.message);
+//     return { error: "Failed to update payment method" };
+//   }
+// }
+
+// ── Preview plan change ─────────────────────────────────────────────────
+// export async function previewPlanChange(newPlan) {
+//   const userId = await getOwnerId();
+//   await dbConnect();
+//   const user = await User.findOne({ userId });
+//   if (!user?.subscription?.dodoSubscriptionId) return { error: "No active subscription" };
+//
+//   const newProductId = PLAN_TO_DODO_PRODUCT[newPlan];
+//   if (!newProductId) return { error: "Invalid plan" };
+//
+//   try {
+//     const { getDodo } = await import("@/lib/dodo");
+//     const dodo = getDodo();
+//     const preview = await dodo.subscriptions.previewChangePlan(
+//       user.subscription.dodoSubscriptionId,
+//       { product_id: newProductId, quantity: 1, proration_billing_mode: "difference_immediately" }
+//     );
+//     return {
+//       currentPlan: user.subscription.plan,
+//       newPlan,
+//       immediateCharge: preview.immediate_charge?.summary || null,
+//       credit: preview.credit?.amount || null,
+//       newPlanDetails: preview.new_plan,
+//       effectiveDate: preview.effective_date,
+//     };
+//   } catch (error) {
+//     console.error("[Dodo] Preview plan change error:", error.message);
+//     return { error: "Failed to preview plan change" };
+//   }
+// }
+
+// ── Change plan ─────────────────────────────────────────────────────────
+// export async function changePlan(newPlan) {
+//   const userId = await getOwnerId();
+//   await dbConnect();
+//   const user = await User.findOne({ userId });
+//   if (!user?.subscription?.dodoSubscriptionId) return { error: "No active subscription" };
+//
+//   const newProductId = PLAN_TO_DODO_PRODUCT[newPlan];
+//   if (!newProductId) return { error: "Invalid plan" };
+//
+//   const currentTier = PLAN_TIERS[user.subscription.plan] || 0;
+//   const newTier = PLAN_TIERS[newPlan] || 0;
+//   const isUpgrade = newTier > currentTier;
+//
+//   try {
+//     const { getDodo } = await import("@/lib/dodo");
+//     const dodo = getDodo();
+//     const result = await dodo.subscriptions.changePlan(
+//       user.subscription.dodoSubscriptionId,
+//       {
+//         product_id: newProductId,
+//         quantity: 1,
+//         proration_billing_mode: "difference_immediately",
+//         on_payment_failure: isUpgrade ? "prevent_change" : "apply_change",
+//       }
+//     );
+//     console.log("[Dodo] Plan change initiated:", result.status, "invoice:", result.invoice_id);
+//     // Don't update plan here — wait for subscription.plan_changed webhook
+//     return { success: true, status: result.status, invoiceId: result.invoice_id, paymentId: result.payment_id };
+//   } catch (error) {
+//     console.error("[Dodo] Change plan error:", error.message);
+//     return { error: "Failed to change plan. Please try again." };
+//   }
+// }
+
+// ── Purchase top-up DM pack ─────────────────────────────────────────────
+// export async function purchaseTopUp(packSize) {
+//   const TOPUP_PRODUCTS = {
+//     200: process.env.DODO_TOPUP_200_PRODUCT_ID,
+//     500: process.env.DODO_TOPUP_500_PRODUCT_ID,
+//     1000: process.env.DODO_TOPUP_1000_PRODUCT_ID,
+//   };
+//   const productId = TOPUP_PRODUCTS[packSize];
+//   if (!productId) return { error: "Invalid pack size" };
+//
+//   const userId = await getOwnerId();
+//   await dbConnect();
+//   const user = await User.findOne({ userId });
+//   if (!user) return { error: "User not found" };
+//
+//   try {
+//     const { getDodo } = await import("@/lib/dodo");
+//     const dodo = getDodo();
+//
+//     if (user.subscription?.dodoSubscriptionId) {
+//       // Add as addon to existing subscription
+//       const result = await dodo.subscriptions.changePlan(
+//         user.subscription.dodoSubscriptionId,
+//         {
+//           product_id: PLAN_TO_DODO_PRODUCT[user.subscription.plan],
+//           quantity: 1,
+//           proration_billing_mode: "full_immediately",
+//           addons: [{ addon_id: productId, quantity: 1 }],
+//         }
+//       );
+//       return { success: true, ...result };
+//     } else {
+//       // One-time purchase
+//       const session = await dodo.checkoutSessions.create({
+//         product_cart: [{ product_id: productId, quantity: 1 }],
+//         customer: { email: user.email, name: user.name },
+//         metadata: { type: "topup", packSize: String(packSize), userId: user._id.toString() },
+//         return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?topup=true`,
+//       });
+//       return { checkoutUrl: session.checkout_url };
+//     }
+//   } catch (error) {
+//     console.error("[Dodo] Top-up purchase error:", error.message);
+//     return { error: "Failed to process top-up" };
+//   }
+// }
+
+// ── Create subscription checkout with overage product ───────────────────
+// export async function createSubscriptionWithOverage(planName) {
+//   const userId = await getOwnerId();
+//   await dbConnect();
+//   const user = await User.findOne({ userId });
+//   if (!user) return { error: "User not found" };
+//
+//   const planKey = planName.toLowerCase();
+//   const productId = PLAN_TO_DODO_PRODUCT[planKey];
+//   if (!productId) return { error: "Invalid plan" };
+//
+//   try {
+//     const { getDodo } = await import("@/lib/dodo");
+//     const dodo = getDodo();
+//
+//     // Build product cart: subscription + overage product (Silver/Gold only)
+//     const productCart = [{ product_id: productId, quantity: 1 }];
+//     if (planKey === "silver" && process.env.DODO_PRODUCT_DM_OVERAGE_SILVER) {
+//       productCart.push({ product_id: process.env.DODO_PRODUCT_DM_OVERAGE_SILVER, quantity: 1 });
+//     } else if (planKey === "gold" && process.env.DODO_PRODUCT_DM_OVERAGE_GOLD) {
+//       productCart.push({ product_id: process.env.DODO_PRODUCT_DM_OVERAGE_GOLD, quantity: 1 });
+//     }
+//
+//     let customerId = user.subscription?.dodoCustomerId;
+//     if (!customerId) {
+//       const customer = await dodo.customers.create({
+//         email: user.email || undefined,
+//         name: user.name || user.instagramUsername || "Engagr User",
+//       });
+//       customerId = customer.customer_id;
+//       await User.findOneAndUpdate({ userId }, { "subscription.dodoCustomerId": customerId });
+//     }
+//
+//     const session = await dodo.checkoutSessions.create({
+//       product_cart: productCart,
+//       customer: { customer_id: customerId },
+//       metadata: { plan: planKey, userId: user._id.toString() },
+//       return_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?subscribed=true`,
+//     });
+//
+//     return { success: true, checkoutUrl: session.checkout_url };
+//   } catch (error) {
+//     console.error("[Dodo] Subscription with overage error:", error.message);
+//     return { error: "Failed to create checkout" };
+//   }
+// }
+// [/PAYMENTS DISABLED]

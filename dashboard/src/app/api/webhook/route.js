@@ -149,16 +149,18 @@ async function replyToComment(commentId, text, token, mediaId) {
 // Private DM to a commenter — MUST use /me/messages with recipient.comment_id
 // This is the only valid way to initiate a private DM from a comment (Business Login)
 // Quick replies are NOT supported here (first-contact thread); plain text only
-async function sendPrivateReply(commentId, text, token) {
+async function sendPrivateReply(commentId, messagePayload, token) {
     try {
         const url = new URL(`${IG_BASE}/me/messages`);
         url.searchParams.set('access_token', token);
+        // messagePayload can be { text: "..." } or { attachment: { type: 'template', ... } }
+        const message = typeof messagePayload === 'string' ? { text: messagePayload } : messagePayload;
         const res = await fetch(url.toString(), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 recipient: { comment_id: commentId },
-                message: { text }
+                message
             })
         });
         const data = await res.json();
@@ -511,21 +513,30 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
         }
     }
 
-    // ── Step 2: Send DM with confirmation button ─────────────────────────────
-    // Instagram Private Reply API only supports plain text (recipient: { comment_id }).
-    // We must first call it to initiate the conversation and get the recipient's IG-scoped ID,
-    // then send the button template as the actual message.
-    // To avoid two visible messages, we use a minimal opener for the private reply.
+    // ── Step 2: Send DM with confirmation button (single template card) ────
     const greetingText = automation.dmContent || 'Hey there! Thanks for your interest 😊';
     const confirmButtonText = automation.buttonText || 'Yes';
 
-    // Initiate conversation via Private Reply (minimal text — this is an API requirement)
-    const firstContact = await sendPrivateReply(commentId, '👋', token);
+    // Send the template card directly via Private Reply — ONE message, no plain text opener
+    const firstContact = await sendPrivateReply(commentId, {
+        attachment: {
+            type: 'template',
+            payload: {
+                template_type: 'button',
+                text: greetingText,
+                buttons: [{
+                    type: 'postback',
+                    title: confirmButtonText,
+                    payload: `CONFIRM_INTEREST:${senderId}`
+                }]
+            }
+        }
+    }, token);
     const igScopedId = firstContact?.recipient_id;
 
     if (!firstContact || firstContact.error) {
         const status = checkTokenError(firstContact, botUser, accountId) ? 'token_expired' : 'failed';
-        console.error('[AutoReply] ❌ Failed to send initial DM');
+        console.error('[AutoReply] ❌ Failed to send DM template');
         await saveEvent({
             type,
             accountId,
@@ -535,37 +546,6 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
             reply: { publicReply, privateDM: greetingText, status },
         });
         return;
-    }
-
-    // Now send the real greeting + confirmation button as a single template card
-    if (igScopedId) {
-        try {
-            const url = new URL(`${IG_BASE}/me/messages`);
-            url.searchParams.set('access_token', token);
-            await fetch(url.toString(), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    recipient: { id: igScopedId },
-                    message: {
-                        attachment: {
-                            type: 'template',
-                            payload: {
-                                template_type: 'button',
-                                text: greetingText,
-                                buttons: [{
-                                    type: 'postback',
-                                    title: confirmButtonText,
-                                    payload: `CONFIRM_INTEREST:${senderId}`
-                                }]
-                            }
-                        }
-                    }
-                })
-            });
-        } catch (e) {
-            console.error('[Confirm Button Error]', e.message);
-        }
     }
 
     console.log(`[AutoReply] ✅ Sent greeting + confirmation button to @${fromInfo?.username || senderId}`);
