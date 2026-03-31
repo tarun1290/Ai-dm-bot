@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const EventSchema = new mongoose.Schema({
     type: {
         type: String,
-        enum: ['comment', 'mention', 'dm', 'reel_share', 'reaction', 'bot_restart', 'postback', 'smart_reply'],
+        enum: ['comment', 'mention', 'dm', 'reel_share', 'reaction', 'bot_restart', 'postback', 'smart_reply', 'comment_hide', 'comment_unhide', 'comment_delete', 'comments_enabled', 'comments_disabled'],
         required: true
     },
     accountId: { type: mongoose.Schema.Types.ObjectId, ref: "InstagramAccount", index: true },

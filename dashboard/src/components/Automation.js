@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Loader2, CheckCircle2, AtSign, Share2, Link2, MessageSquare, ToggleLeft, ToggleRight, Layers, Brain, Info, Shield, Reply } from "lucide-react";
+import { Loader2, CheckCircle2, AtSign, Share2, Link2, MessageSquare, ToggleLeft, ToggleRight, Layers, Brain, Info, Shield, Reply, MessageCircleWarning } from "lucide-react";
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +13,7 @@ import ReelCategoryEditor from './automation/ReelCategoryEditor';
 import AccountSummary from './automation/AccountSummary';
 import TriggerForm from './automation/TriggerForm';
 import ResponseEditor from './automation/ResponseEditor';
+import CommentManager from './automation/CommentManager';
 
 // ── Tab config ──────────────────────────────────────────────────────────────
 const TABS = [
@@ -21,6 +22,7 @@ const TABS = [
   { id: "mention", label: "Mention Replies", icon: AtSign, configKey: "mentionsEnabled" },
   { id: "follower", label: "Follower Gate", icon: Shield, configKey: "requireFollow" },
   { id: "reply", label: "Comment Reply", icon: Reply, configKey: "replyEnabled" },
+  { id: "moderation", label: "Comment Manager", icon: MessageCircleWarning, configKey: null },
   { id: "rules", label: "Smart Rules", icon: Layers, configKey: null },
 ];
 
@@ -575,6 +577,17 @@ export default function Automation({ aiEnabled = false }) {
                 </SectionBox>
               </div>
               <SaveButton onClick={handlePublish} loading={publishing} />
+            </div>
+          )}
+
+          {/* ── Comment Manager ─────────────────────────────────────── */}
+          {activeTab === "moderation" && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold" style={{ color: '#18181B' }}>Comment Manager</h2>
+                <p className="text-sm" style={{ color: '#71717A' }}>View, hide, or delete comments on your posts</p>
+              </div>
+              <CommentManager media={instaData.media || []} accountId={instaData.accountId} />
             </div>
           )}
 
