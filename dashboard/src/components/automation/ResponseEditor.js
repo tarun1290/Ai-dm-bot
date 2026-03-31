@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import SuggestionChips from "./SuggestionChips";
 
 function normalizeUrl(url) {
   if (!url) return '';
@@ -14,6 +15,24 @@ function normalizeUrl(url) {
   }
   return url;
 }
+
+const DM_MESSAGE_SUGGESTIONS = [
+  "Hey {{username}}! Thanks for your interest \uD83D\uDE0A Here's what you asked for!",
+  "Hi {{username}}! So glad you reached out. Here's the link you requested!",
+  "Hey there! \uD83C\uDF89 Thanks for commenting. Check out the details below!",
+  "Hi {{username}}! Great to connect. Here's everything you need \uD83D\uDC47",
+  "Welcome! \uD83D\uDE4C Thanks for showing interest. Here's your exclusive access!",
+  "Hey {{username}}! You asked, I delivered \uD83D\uDD25 Check this out!",
+];
+
+const OPENING_MESSAGE_SUGGESTIONS = [
+  "Here's your link! Tap below to access it \uD83D\uDC47",
+  "Hey! I've got something for you. Tap below to check it out!",
+  "Thanks for reaching out! Here's what you were looking for \uD83C\uDF81",
+  "Great news! Your content is ready. Tap below to get it!",
+  "Here you go! Tap the button below to access everything \uD83D\uDE80",
+  "Ready for you! Just tap below to get started \u2728",
+];
 
 const DM_PRESETS = [
   {
@@ -122,6 +141,15 @@ export default function ResponseEditor({
           </div>
         </div>
 
+        {/* Quick template chips */}
+        <SuggestionChips
+          suggestions={DM_MESSAGE_SUGGESTIONS}
+          onSelect={(text) => setDmContent(text)}
+          activeValue={dmContent}
+          mode="replace"
+          label="Quick templates"
+        />
+
         {/* Textarea */}
         <div>
           <p className="text-[11px] font-black uppercase tracking-widest mb-2" style={{ color: 'var(--text-placeholder)' }}>
@@ -170,6 +198,15 @@ export default function ResponseEditor({
             <p className="text-[12px] mt-0.5" style={{ color: 'var(--text-placeholder)' }}>Sent after the user confirms (and follows, if required). Include your link here.</p>
           </div>
         </div>
+
+        {/* Quick template chips */}
+        <SuggestionChips
+          suggestions={OPENING_MESSAGE_SUGGESTIONS}
+          onSelect={(text) => setDeliveryMessage(text)}
+          activeValue={deliveryMessage}
+          mode="replace"
+          label="Quick templates"
+        />
 
         <div>
           <textarea

@@ -3,16 +3,28 @@
 import { cn } from "@/lib/utils";
 import { Toggle } from "./UIHelpers";
 import { Play, ExternalLink, Heart, MessageCircle, CheckCircle2, UserCheck } from "lucide-react";
+import SuggestionChips from "./SuggestionChips";
 
 const REPLY_PRESETS = [
-  "Check your DMs! 📩",
-  "I just sent you a message! 📬",
-  "Look in your inbox 👀",
-  "Replied! Check your DMs 💬",
-  "Just DM'd you! ✉️",
-  "I got you! Check your messages 🙌",
-  "Sent! See you in DMs 🚀",
-  "Your message is waiting 📥",
+  "Check your DMs! \uD83D\uDCE9",
+  "I just sent you a message! \uD83D\uDCEC",
+  "Look in your inbox \uD83D\uDC40",
+  "Replied! Check your DMs \uD83D\uDCAC",
+  "Just DM'd you! \u2709\uFE0F",
+  "I got you! Check your messages \uD83D\uDE4C",
+  "Sent! See you in DMs \uD83D\uDE80",
+  "Your message is waiting \uD83D\uDCE5",
+];
+
+const PUBLIC_REPLY_SUGGESTIONS = [
+  "Check your DMs! \uD83D\uDCE9",
+  "Sent you the link! \uD83D\uDD25",
+  "Just DMed you! Check your inbox \uD83D\uDCAC",
+  "Dropping it in your DMs now! \u2728",
+  "Sent! Check your messages \uD83D\uDCEC",
+  "On its way to your DMs! \uD83D\uDE80",
+  "Done! Check your inbox \uD83D\uDC8C",
+  "Got you! Sliding into your DMs now \uD83D\uDE04",
 ];
 
 const RadioOption = ({ selected, onClick, label }) => (
@@ -261,6 +273,15 @@ export default function TriggerForm({
 
         {replyToggle && (
           <div className="space-y-4 mt-4">
+            {/* Quick add chips */}
+            <SuggestionChips
+              suggestions={PUBLIC_REPLY_SUGGESTIONS}
+              onSelect={(text) => setReplyMessages([text])}
+              activeValue={replyMessages[0]}
+              mode="replace"
+              label="Quick add"
+            />
+
             {/* Presets — single select */}
             <div>
               <p className="text-[11px] font-black uppercase tracking-widest mb-2.5" style={{ color: 'var(--text-placeholder)' }}>
