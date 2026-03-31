@@ -369,6 +369,37 @@ async function deliverContent(recipientId, token, automation, igUsername) {
     }
 }
 
+// Send a follow-up question with quick reply options after content delivery.
+// Only fires if automation.followUp.enabled is true and has a question + options.
+async function sendFollowUpQuestion(recipientId, token, automation) {
+    const fu = automation?.followUp;
+    if (!fu?.enabled || !fu.question) return;
+    const validOptions = (fu.options || []).filter(o => o?.trim());
+    if (validOptions.length < 2) return;
+
+    try {
+        const quickReplies = validOptions.map(opt => ({
+            content_type: 'text',
+            title: opt.slice(0, 20),
+            payload: `FOLLOWUP_REPLY:${opt}`,
+        }));
+
+        const url = new URL(`${IG_BASE}/me/messages`);
+        url.searchParams.set('access_token', token);
+        await fetch(url.toString(), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                recipient: { id: recipientId },
+                message: { text: fu.question, quick_replies: quickReplies },
+            }),
+        });
+        console.log(`[FollowUp] Sent question to ${recipientId}: "${fu.question}" with ${validOptions.length} options`);
+    } catch (e) {
+        console.error('[FollowUp] Failed to send question:', e.message);
+    }
+}
+
 // Check if a user follows the business account.
 // Primary method: query the user's profile for is_user_follow_business field.
 // Fallback: paginate through /me/followers (less reliable, for older API versions).
@@ -604,7 +635,9 @@ async function handleAutoReply(commentId, senderId, type, fromInfo, rawPayload, 
     }
 
     const igUsername = botUser?.instagramUsername || '';
-    const publicReply = automation.replyMessages?.[0] || 'Check your DM! 📩';
+    // Pick a random reply from rotating variants, or fall back to first/default
+    const replyArr = automation.replyMessages?.filter(m => m?.trim()) || [];
+    const publicReply = replyArr.length > 0 ? replyArr[Math.floor(Math.random() * replyArr.length)] : 'Check your DM! 📩';
     let replySent = false;
 
     // ── Step 1: Public reply to the comment ──────────────────────────────────
@@ -947,9 +980,13 @@ export async function POST(request) {
                             postTrigger: 'any', // already filtered above
                             commentTrigger: 'any', // already filtered above
                             replyEnabled: matched.commentReply?.enabled ?? true,
-                            replyMessages: [matched.commentReply?.message || 'Check your DM! 📩'],
+                            replyMessages: matched.commentReply?.messages?.length ? matched.commentReply.messages : [matched.commentReply?.message || 'Check your DM! 📩'],
                             dmContent: matched.dmMessage || '',
-                            buttonText: 'Yes',
+                            buttonText: matched.buttonText || 'Yes',
+                            linkUrl: matched.linkUrl || '',
+                            deliveryMessage: matched.deliveryMessage || '',
+                            deliveryButtonText: matched.deliveryButtonText || '',
+                            followUp: matched.followUp || null,
                             requireFollow: matched.followerGate?.enabled ?? false,
                             keywords: matched.keywords || [],
                             instagramBusinessId: igBusinessId,
@@ -1040,6 +1077,26 @@ export async function POST(request) {
                 const profile = await getUser(senderId, token);
                 const msgText = event.message.text;
                 if (msgText) console.log(`[Message] @${profile?.username || 'user'}: ${msgText}`);
+
+                // ── Handle follow-up quick reply responses ─────────────────
+                const qrPayload = event.message.quick_reply?.payload;
+                if (qrPayload?.startsWith('FOLLOWUP_REPLY:')) {
+                    console.log(`[FollowUp] Quick reply from ${senderId}: "${msgText}"`);
+                    // Find the automation that triggered this follow-up to get the response
+                    try {
+                        const fuAutomations = await Automation.find({
+                            accountId, 'followUp.enabled': true, 'followUp.response': { $ne: '' },
+                        }).lean();
+                        const fuAuto = fuAutomations?.[0];
+                        if (fuAuto?.followUp?.response) {
+                            await sendDM(senderId, fuAuto.followUp.response, token);
+                            console.log(`[FollowUp] Sent auto-response to ${senderId}`);
+                        }
+                    } catch (e) {
+                        console.error('[FollowUp] Auto-response error:', e.message);
+                    }
+                    continue;
+                }
 
                 const attachments = event.message.attachments || [];
                 let replySentForThisMessage = false;
@@ -1371,6 +1428,7 @@ export async function POST(request) {
                                 continue;
                             }
                             await deliverContent(senderId, token, pbAutomation, igUsername);
+                            await sendFollowUpQuestion(senderId, token, pbAutomation);
                             await trackDmUsage(botUser, pbQuota.source);
                             console.log(`[Confirm ✅] @${pbProfile?.username || senderId} is a follower — delivered content`);
                             await saveEvent({
@@ -1449,6 +1507,7 @@ export async function POST(request) {
                             continue;
                         }
                         await deliverContent(senderId, token, pbAutomation, igUsername);
+                        await sendFollowUpQuestion(senderId, token, pbAutomation);
                         await trackDmUsage(botUser, pbQuota2.source);
                         console.log(`[Confirm ✅] @${pbProfile?.username || senderId} — delivered content (no follow gate)`);
                         await saveEvent({
@@ -1489,6 +1548,7 @@ export async function POST(request) {
                             try { await sendDM(senderId, successText, token); } catch { /* non-fatal */ }
                         }
                         await deliverContent(senderId, token, pbAutomation, igUsername);
+                        await sendFollowUpQuestion(senderId, token, pbAutomation);
                         await trackDmUsage(botUser, fgQuota.source);
 
                         console.log(`[FollowGate ✅] @${pbProfile?.username || senderId} confirmed follow — content delivered`);
@@ -1515,6 +1575,7 @@ export async function POST(request) {
                             await sendDM(senderId, "We're having trouble verifying your follow, but here's your content anyway! 🎉", token);
                             if (pbAutomation?.isActive) {
                                 await deliverContent(senderId, token, pbAutomation, igUsername);
+                                await sendFollowUpQuestion(senderId, token, pbAutomation);
                             }
                         } else {
                             const fg2 = pbAutomation?.followerGate || {};

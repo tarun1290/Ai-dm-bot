@@ -86,9 +86,23 @@ export async function createAutomationAction(accountId, data) {
       caseSensitive: data.caseSensitive ?? false,
       commentReply: {
         enabled: data.commentReply?.enabled ?? true,
-        message: data.commentReply?.message || "Check your DMs! \ud83d\udce9",
+        messages: Array.isArray(data.commentReply?.messages) && data.commentReply.messages.length
+          ? data.commentReply.messages.filter(m => typeof m === "string")
+          : ["Check your DMs! \ud83d\udce9"],
       },
       dmMessage: data.dmMessage || "",
+      linkUrl: data.linkUrl || "",
+      buttonText: data.buttonText || "Get the link \u2192",
+      deliveryMessage: data.deliveryMessage || "",
+      deliveryButtonText: data.deliveryButtonText || "",
+      followUp: {
+        enabled: data.followUp?.enabled ?? false,
+        question: data.followUp?.question || "",
+        options: Array.isArray(data.followUp?.options) && data.followUp.options.length
+          ? data.followUp.options.filter(o => typeof o === "string")
+          : ["", ""],
+        response: data.followUp?.response || "",
+      },
       followerGate: {
         enabled: data.followerGate?.enabled ?? false,
         nonFollowerMessage: data.followerGate?.nonFollowerMessage || "Follow us first to get access!",
@@ -120,7 +134,8 @@ export async function updateAutomationAction(automationId, data) {
   // Only update provided fields
   const allowedFields = [
     "name", "type", "scope", "mediaIds", "keywords", "caseSensitive",
-    "commentReply", "dmMessage", "followerGate", "enabled",
+    "commentReply", "dmMessage", "linkUrl", "buttonText",
+    "deliveryMessage", "deliveryButtonText", "followUp", "followerGate", "enabled",
   ];
   for (const field of allowedFields) {
     if (data[field] !== undefined) {

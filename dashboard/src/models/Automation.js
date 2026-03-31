@@ -22,9 +22,20 @@ const AutomationSchema = new mongoose.Schema({
 
   commentReply: {
     enabled: { type: Boolean, default: true },
-    message: { type: String, default: "Check your DMs! 📩" },
+    messages: { type: [String], default: ["Check your DMs! 📩"] },
   },
   dmMessage: { type: String, default: "" },
+  linkUrl: { type: String, default: "" },
+  buttonText: { type: String, default: "Get the link →" },
+  deliveryMessage: { type: String, default: "" },
+  deliveryButtonText: { type: String, default: "" },
+
+  followUp: {
+    enabled: { type: Boolean, default: false },
+    question: { type: String, default: "" },
+    options: { type: [String], default: ["", ""] },
+    response: { type: String, default: "" },
+  },
 
   followerGate: {
     enabled: { type: Boolean, default: false },

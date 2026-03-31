@@ -419,8 +419,22 @@ function SettingsTab({ automation, accountId, onUpdated }) {
   const [keywords, setKeywords] = useState(automation.keywords || []);
   const [keywordInput, setKeywordInput] = useState("");
   const [commentReplyEnabled, setCommentReplyEnabled] = useState(automation.commentReply?.enabled ?? true);
-  const [commentReplyMessage, setCommentReplyMessage] = useState(automation.commentReply?.message || "");
+  const [replyMessages, setReplyMessages] = useState(() => {
+    const msgs = automation.commentReply?.messages;
+    return msgs?.length ? [...msgs] : [automation.commentReply?.message || "Check your DMs! \ud83d\udce9"];
+  });
   const [dmMessage, setDmMessage] = useState(automation.dmMessage || "");
+  const [linkUrl, setLinkUrl] = useState(automation.linkUrl || "");
+  const [buttonText, setButtonText] = useState(automation.buttonText || "Get the link \u2192");
+  const [deliveryMessage, setDeliveryMessage] = useState(automation.deliveryMessage || "");
+  const [deliveryButtonText, setDeliveryButtonText] = useState(automation.deliveryButtonText || "");
+  const [followUpEnabled, setFollowUpEnabled] = useState(automation.followUp?.enabled ?? false);
+  const [followUpQuestion, setFollowUpQuestion] = useState(automation.followUp?.question || "");
+  const [followUpOptions, setFollowUpOptions] = useState(() => {
+    const opts = automation.followUp?.options;
+    return opts?.length >= 2 ? [...opts] : ["", ""];
+  });
+  const [followUpResponse, setFollowUpResponse] = useState(automation.followUp?.response || "");
   const [followerGateEnabled, setFollowerGateEnabled] = useState(automation.followerGate?.enabled ?? false);
   const [followerGateMessage, setFollowerGateMessage] = useState(automation.followerGate?.nonFollowerMessage || "Follow us first to get access!");
   const [saving, setSaving] = useState(false);
@@ -447,17 +461,23 @@ function SettingsTab({ automation, accountId, onUpdated }) {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const safeReplyMessages = (Array.isArray(replyMessages) ? replyMessages : []).filter(m => typeof m === "string" && m.trim());
+      const safeFollowUpOptions = (Array.isArray(followUpOptions) ? followUpOptions : []).filter(o => typeof o === "string" && o.trim());
       const res = await updateAutomationAction(automation._id, {
         name, scope,
         mediaIds: scope === "post_specific" ? mediaIds : [],
-        keywords,
-        commentReply: { enabled: commentReplyEnabled, message: commentReplyMessage },
-        dmMessage,
+        keywords: Array.isArray(keywords) ? keywords : [],
+        commentReply: { enabled: commentReplyEnabled, messages: safeReplyMessages.length ? safeReplyMessages : ["Check your DMs! \ud83d\udce9"] },
+        dmMessage, linkUrl, buttonText, deliveryMessage, deliveryButtonText,
+        followUp: { enabled: followUpEnabled, question: followUpQuestion, options: safeFollowUpOptions.length >= 2 ? safeFollowUpOptions : ["Option 1", "Option 2"], response: followUpResponse },
         followerGate: { enabled: followerGateEnabled, nonFollowerMessage: followerGateMessage },
       });
       if (res.success) { toast.success("Automation saved!"); onUpdated(res.automation); }
       else toast.error(res.error || "Failed to save");
-    } catch (e) { toast.error(e.message); }
+    } catch (e) {
+      console.error("[UpdateAutomation] Error:", e);
+      toast.error(e?.message || "Something went wrong");
+    }
     finally { setSaving(false); }
   };
 
@@ -509,8 +529,6 @@ function SettingsTab({ automation, accountId, onUpdated }) {
               <Plus size={12} /> Add Post
             </button>
           </div>
-
-          {/* Inline media picker */}
           {showMediaPicker && (
             <div className="mt-3 rounded-lg p-3" style={{ backgroundColor: "#FFFFFF", border: "1px solid #E4E4E7" }}>
               {loadingMedia ? (
@@ -567,23 +585,39 @@ function SettingsTab({ automation, accountId, onUpdated }) {
         )}
       </div>
 
-      {/* Comment reply */}
+      {/* ── PUBLIC COMMENT REPLY — rotating variants ──────────── */}
       <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: "#FAFAFA" }}>
         <div className="flex items-center justify-between">
           <label className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "#A1A1AA" }}>Public Comment Reply</label>
           <EnableToggle enabled={commentReplyEnabled} onChange={setCommentReplyEnabled} />
         </div>
         {commentReplyEnabled && (
-          <div>
-            <input value={commentReplyMessage} onChange={e => setCommentReplyMessage(e.target.value)}
-              className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
-              style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
-            <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>{"Use {{username}} or {{keyword}} as template variables"}</p>
+          <div className="space-y-2">
+            <p className="text-[10px]" style={{ color: "#71717A" }}>Engagr will rotate through these replies randomly so your responses look more natural.</p>
+            {replyMessages.map((msg, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <input value={msg} onChange={e => { const next = [...replyMessages]; next[idx] = e.target.value; setReplyMessages(next); }}
+                  placeholder={`Reply variant ${idx + 1}`}
+                  className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+                  style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                {replyMessages.length > 1 && (
+                  <button onClick={() => setReplyMessages(prev => prev.filter((_, i) => i !== idx))}
+                    className="p-1.5 rounded-md" style={{ color: "#A1A1AA" }}><Trash2 size={13} /></button>
+                )}
+              </div>
+            ))}
+            {replyMessages.length < 5 && (
+              <button onClick={() => setReplyMessages(prev => [...prev, ""])}
+                className="flex items-center gap-1 text-xs font-medium pt-1" style={{ color: "#4F46E5" }}>
+                <Plus size={12} /> Add variant
+              </button>
+            )}
+            <p className="text-[10px]" style={{ color: "#A1A1AA" }}>{"Use {{username}} or {{keyword}} as template variables"}</p>
           </div>
         )}
       </div>
 
-      {/* DM message */}
+      {/* ── DM MESSAGE ────────────────────────────────────────── */}
       <div>
         <label className="text-[10px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>DM Message</label>
         <textarea value={dmMessage} onChange={e => setDmMessage(e.target.value)} rows={3}
@@ -592,7 +626,107 @@ function SettingsTab({ automation, accountId, onUpdated }) {
           style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
       </div>
 
-      {/* Follower gate */}
+      {/* ── LINK URL + BUTTON ─────────────────────────────────── */}
+      <div>
+        <label className="text-[10px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Link URL</label>
+        <div className="relative">
+          <input value={linkUrl}
+            onChange={e => setLinkUrl(e.target.value)}
+            onBlur={() => { if (linkUrl && !linkUrl.startsWith("http://") && !linkUrl.startsWith("https://")) setLinkUrl("https://" + linkUrl); }}
+            placeholder="https://yoursite.com/offer"
+            className="w-full rounded-lg px-4 py-2.5 text-sm outline-none pr-8"
+            style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+          {linkUrl.startsWith("http") && (
+            <Check size={14} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "#059669" }} />
+          )}
+        </div>
+        <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>The URL your follower will be sent to</p>
+      </div>
+      <div style={{ opacity: linkUrl ? 1 : 0.4, transition: "opacity 0.2s", pointerEvents: linkUrl ? "auto" : "none" }}>
+        <label className="text-[10px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Button Label</label>
+        <input value={buttonText} onChange={e => setButtonText(e.target.value.slice(0, 25))}
+          placeholder="Get the link →"
+          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+          style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+        <div className="flex justify-between mt-1">
+          <p className="text-[10px]" style={{ color: "#A1A1AA" }}>Text on the clickable button in the DM</p>
+          <span className="text-[10px]" style={{ color: buttonText.length >= 25 ? "#DC2626" : "#A1A1AA" }}>{buttonText.length}/25</span>
+        </div>
+      </div>
+
+      {/* ── DELIVERY MESSAGE + BUTTON ─────────────────────────── */}
+      <div>
+        <label className="text-[10px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Delivery Message</label>
+        <textarea value={deliveryMessage} onChange={e => setDeliveryMessage(e.target.value)} rows={2}
+          placeholder="Here's your link! Tap below to access it 🎁"
+          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
+          style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+        <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>Sent after the user confirms. Leave blank to skip the confirmation step.</p>
+      </div>
+      <div style={{ opacity: deliveryMessage ? 1 : 0.4, transition: "opacity 0.2s", pointerEvents: deliveryMessage ? "auto" : "none" }}>
+        <label className="text-[10px] font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Delivery Button Label</label>
+        <input value={deliveryButtonText} onChange={e => setDeliveryButtonText(e.target.value.slice(0, 25))}
+          placeholder="Access now →"
+          className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+          style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+        <div className="flex justify-end mt-1">
+          <span className="text-[10px]" style={{ color: deliveryButtonText.length >= 25 ? "#DC2626" : "#A1A1AA" }}>{deliveryButtonText.length}/25</span>
+        </div>
+      </div>
+
+      {/* ── FOLLOW-UP QUESTION ────────────────────────────────── */}
+      <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: "#FAFAFA" }}>
+        <div className="flex items-center justify-between">
+          <label className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "#A1A1AA" }}>Follow-Up Question</label>
+          <EnableToggle enabled={followUpEnabled} onChange={setFollowUpEnabled} />
+        </div>
+        {followUpEnabled && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-[10px] font-medium uppercase tracking-wider mb-1 block" style={{ color: "#A1A1AA" }}>Question</label>
+              <input value={followUpQuestion} onChange={e => setFollowUpQuestion(e.target.value)}
+                placeholder="What type of content are you interested in?"
+                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+                style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+              <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>Engagr will send this question after the initial DM is delivered.</p>
+            </div>
+            <div>
+              <label className="text-[10px] font-medium uppercase tracking-wider mb-1 block" style={{ color: "#A1A1AA" }}>Quick Reply Options</label>
+              <p className="text-[10px] mb-2" style={{ color: "#A1A1AA" }}>Users tap one of these to reply instantly.</p>
+              <div className="space-y-2">
+                {followUpOptions.map((opt, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input value={opt} onChange={e => { const next = [...followUpOptions]; next[idx] = e.target.value; setFollowUpOptions(next); }}
+                      placeholder={`Option ${idx + 1}`}
+                      className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+                      style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                    {followUpOptions.length > 2 && (
+                      <button onClick={() => setFollowUpOptions(prev => prev.filter((_, i) => i !== idx))}
+                        className="p-1.5 rounded-md" style={{ color: "#A1A1AA" }}><Trash2 size={13} /></button>
+                    )}
+                  </div>
+                ))}
+                {followUpOptions.length < 4 && (
+                  <button onClick={() => setFollowUpOptions(prev => [...prev, ""])}
+                    className="flex items-center gap-1 text-xs font-medium pt-1" style={{ color: "#4F46E5" }}>
+                    <Plus size={12} /> Add option
+                  </button>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-medium uppercase tracking-wider mb-1 block" style={{ color: "#A1A1AA" }}>Auto-Response</label>
+              <textarea value={followUpResponse} onChange={e => setFollowUpResponse(e.target.value)} rows={2}
+                placeholder="Thanks for letting us know! We'll send you relevant content shortly."
+                className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
+                style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+              <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>Engagr sends this message regardless of which option the user picks.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── FOLLOWER GATE ─────────────────────────────────────── */}
       <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: "#FAFAFA" }}>
         <div className="flex items-center justify-between">
           <label className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "#A1A1AA" }}>Follower Gate</label>
@@ -885,8 +1019,16 @@ function CreateModal({ accountId, onClose, onCreated }) {
   const [keywords, setKeywords] = useState([]);
   const [keywordInput, setKeywordInput] = useState("");
   const [commentReplyEnabled, setCommentReplyEnabled] = useState(true);
-  const [commentReplyMessage, setCommentReplyMessage] = useState("Check your DMs! \ud83d\udce9");
+  const [replyMessages, setReplyMessages] = useState(["Check your DMs! \ud83d\udce9"]);
   const [dmMessage, setDmMessage] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [buttonText, setButtonText] = useState("Get the link \u2192");
+  const [deliveryMessage, setDeliveryMessage] = useState("");
+  const [deliveryButtonText, setDeliveryButtonText] = useState("");
+  const [followUpEnabled, setFollowUpEnabled] = useState(false);
+  const [followUpQuestion, setFollowUpQuestion] = useState("");
+  const [followUpOptions, setFollowUpOptions] = useState(["", ""]);
+  const [followUpResponse, setFollowUpResponse] = useState("");
   const [followerGateEnabled, setFollowerGateEnabled] = useState(false);
   const [followerGateMessage, setFollowerGateMessage] = useState("Follow us first to get access!");
   const [creating, setCreating] = useState(false);
@@ -910,12 +1052,15 @@ function CreateModal({ accountId, onClose, onCreated }) {
   const handleCreate = async () => {
     setCreating(true);
     try {
+      const safeReplyMessages = (Array.isArray(replyMessages) ? replyMessages : []).filter(m => typeof m === "string" && m.trim());
+      const safeFollowUpOptions = (Array.isArray(followUpOptions) ? followUpOptions : []).filter(o => typeof o === "string" && o.trim());
       const res = await createAutomationAction(accountId, {
         name, type: selectedType, scope,
         mediaIds: scope === "post_specific" ? mediaIds : [],
-        keywords,
-        commentReply: { enabled: commentReplyEnabled, message: commentReplyMessage },
-        dmMessage,
+        keywords: Array.isArray(keywords) ? keywords : [],
+        commentReply: { enabled: commentReplyEnabled, messages: safeReplyMessages.length ? safeReplyMessages : ["Check your DMs! \ud83d\udce9"] },
+        dmMessage, linkUrl, buttonText, deliveryMessage, deliveryButtonText,
+        followUp: { enabled: followUpEnabled, question: followUpQuestion, options: safeFollowUpOptions.length >= 2 ? safeFollowUpOptions : ["Option 1", "Option 2"], response: followUpResponse },
         followerGate: { enabled: followerGateEnabled, nonFollowerMessage: followerGateMessage },
       });
       if (res.success) {
@@ -926,7 +1071,8 @@ function CreateModal({ accountId, onClose, onCreated }) {
         toast.error(res.error || "Failed to create automation");
       }
     } catch (e) {
-      toast.error(e.message);
+      console.error("[CreateAutomation] Error:", e);
+      toast.error(e?.message || "Something went wrong");
     } finally {
       setCreating(false);
     }
@@ -1067,25 +1213,41 @@ function CreateModal({ accountId, onClose, onCreated }) {
                 )}
               </div>
 
-              {/* Comment reply */}
+              {/* ── PUBLIC COMMENT REPLY — rotating variants ──────────── */}
               <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: "#FAFAFA" }}>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#A1A1AA" }}>Public Comment Reply</label>
                   <EnableToggle enabled={commentReplyEnabled} onChange={setCommentReplyEnabled} />
                 </div>
                 {commentReplyEnabled && (
-                  <div>
-                    <input value={commentReplyMessage} onChange={e => setCommentReplyMessage(e.target.value)}
-                      className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
-                      style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
-                    <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>
+                  <div className="space-y-2">
+                    <p className="text-[10px]" style={{ color: "#71717A" }}>Engagr will rotate through these replies randomly so your responses look more natural.</p>
+                    {replyMessages.map((msg, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input value={msg} onChange={e => { const next = [...replyMessages]; next[idx] = e.target.value; setReplyMessages(next); }}
+                          placeholder={`Reply variant ${idx + 1}`}
+                          className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+                          style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                        {replyMessages.length > 1 && (
+                          <button onClick={() => setReplyMessages(prev => prev.filter((_, i) => i !== idx))}
+                            className="p-1.5 rounded-md" style={{ color: "#A1A1AA" }}><Trash2 size={13} /></button>
+                        )}
+                      </div>
+                    ))}
+                    {replyMessages.length < 5 && (
+                      <button onClick={() => setReplyMessages(prev => [...prev, ""])}
+                        className="flex items-center gap-1 text-xs font-medium pt-1" style={{ color: "#4F46E5" }}>
+                        <Plus size={12} /> Add variant
+                      </button>
+                    )}
+                    <p className="text-[10px]" style={{ color: "#A1A1AA" }}>
                       {"Use {{username}} for the commenter's name, {{keyword}} for the matched keyword"}
                     </p>
                   </div>
                 )}
               </div>
 
-              {/* DM message */}
+              {/* ── DM MESSAGE ────────────────────────────────────────── */}
               <div>
                 <label className="text-xs font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>DM Message</label>
                 <textarea value={dmMessage} onChange={e => setDmMessage(e.target.value)} rows={3}
@@ -1094,7 +1256,107 @@ function CreateModal({ accountId, onClose, onCreated }) {
                   style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
               </div>
 
-              {/* Follower gate */}
+              {/* ── LINK URL + BUTTON LABEL ───────────────────────────── */}
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Link URL</label>
+                <div className="relative">
+                  <input value={linkUrl}
+                    onChange={e => setLinkUrl(e.target.value)}
+                    onBlur={() => { if (linkUrl && !linkUrl.startsWith("http://") && !linkUrl.startsWith("https://")) setLinkUrl("https://" + linkUrl); }}
+                    placeholder="https://yoursite.com/offer"
+                    className="w-full rounded-lg px-4 py-2.5 text-sm outline-none pr-8"
+                    style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                  {linkUrl.startsWith("http") && (
+                    <Check size={14} className="absolute right-3 top-1/2 -translate-y-1/2" style={{ color: "#059669" }} />
+                  )}
+                </div>
+                <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>The URL your follower will be sent to</p>
+              </div>
+              <div style={{ opacity: linkUrl ? 1 : 0.4, transition: "opacity 0.2s", pointerEvents: linkUrl ? "auto" : "none" }}>
+                <label className="text-xs font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Button Label</label>
+                <input value={buttonText} onChange={e => setButtonText(e.target.value.slice(0, 25))}
+                  placeholder="Get the link →"
+                  className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+                  style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                <div className="flex justify-between mt-1">
+                  <p className="text-[10px]" style={{ color: "#A1A1AA" }}>Text on the clickable button in the DM</p>
+                  <span className="text-[10px]" style={{ color: buttonText.length >= 25 ? "#DC2626" : "#A1A1AA" }}>{buttonText.length}/25</span>
+                </div>
+              </div>
+
+              {/* ── DELIVERY MESSAGE + BUTTON ─────────────────────────── */}
+              <div>
+                <label className="text-xs font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Delivery Message</label>
+                <textarea value={deliveryMessage} onChange={e => setDeliveryMessage(e.target.value)} rows={2}
+                  placeholder="Here's your link! Tap below to access it 🎁"
+                  className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
+                  style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>Sent after the user confirms. Leave blank to skip the confirmation step.</p>
+              </div>
+              <div style={{ opacity: deliveryMessage ? 1 : 0.4, transition: "opacity 0.2s", pointerEvents: deliveryMessage ? "auto" : "none" }}>
+                <label className="text-xs font-medium uppercase tracking-wider mb-1.5 block" style={{ color: "#A1A1AA" }}>Delivery Button Label</label>
+                <input value={deliveryButtonText} onChange={e => setDeliveryButtonText(e.target.value.slice(0, 25))}
+                  placeholder="Access now →"
+                  className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+                  style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                <div className="flex justify-end mt-1">
+                  <span className="text-[10px]" style={{ color: deliveryButtonText.length >= 25 ? "#DC2626" : "#A1A1AA" }}>{deliveryButtonText.length}/25</span>
+                </div>
+              </div>
+
+              {/* ── FOLLOW-UP QUESTION ────────────────────────────────── */}
+              <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: "#FAFAFA" }}>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#A1A1AA" }}>Follow-Up Question</label>
+                  <EnableToggle enabled={followUpEnabled} onChange={setFollowUpEnabled} />
+                </div>
+                {followUpEnabled && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-medium uppercase tracking-wider mb-1 block" style={{ color: "#A1A1AA" }}>Question</label>
+                      <input value={followUpQuestion} onChange={e => setFollowUpQuestion(e.target.value)}
+                        placeholder="What type of content are you interested in?"
+                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none"
+                        style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                      <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>Engagr will send this question after the initial DM is delivered.</p>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium uppercase tracking-wider mb-1 block" style={{ color: "#A1A1AA" }}>Quick Reply Options</label>
+                      <p className="text-[10px] mb-2" style={{ color: "#A1A1AA" }}>Users tap one of these to reply instantly.</p>
+                      <div className="space-y-2">
+                        {followUpOptions.map((opt, idx) => (
+                          <div key={idx} className="flex items-center gap-2">
+                            <input value={opt} onChange={e => { const next = [...followUpOptions]; next[idx] = e.target.value; setFollowUpOptions(next); }}
+                              placeholder={`Option ${idx + 1}`}
+                              className="flex-1 rounded-lg px-4 py-2.5 text-sm outline-none"
+                              style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                            {followUpOptions.length > 2 && (
+                              <button onClick={() => setFollowUpOptions(prev => prev.filter((_, i) => i !== idx))}
+                                className="p-1.5 rounded-md" style={{ color: "#A1A1AA" }}><Trash2 size={13} /></button>
+                            )}
+                          </div>
+                        ))}
+                        {followUpOptions.length < 4 && (
+                          <button onClick={() => setFollowUpOptions(prev => [...prev, ""])}
+                            className="flex items-center gap-1 text-xs font-medium pt-1" style={{ color: "#4F46E5" }}>
+                            <Plus size={12} /> Add option
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium uppercase tracking-wider mb-1 block" style={{ color: "#A1A1AA" }}>Auto-Response</label>
+                      <textarea value={followUpResponse} onChange={e => setFollowUpResponse(e.target.value)} rows={2}
+                        placeholder="Thanks for letting us know! We'll send you relevant content shortly."
+                        className="w-full rounded-lg px-4 py-2.5 text-sm outline-none resize-none"
+                        style={{ border: "1px solid #E4E4E7", color: "#18181B" }} />
+                      <p className="text-[10px] mt-1" style={{ color: "#A1A1AA" }}>Engagr sends this message regardless of which option the user picks.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── FOLLOWER GATE ─────────────────────────────────────── */}
               <div className="rounded-lg p-4 space-y-3" style={{ backgroundColor: "#FAFAFA" }}>
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-medium uppercase tracking-wider" style={{ color: "#A1A1AA" }}>Follower Gate</label>
@@ -1127,13 +1389,25 @@ function CreateModal({ accountId, onClose, onCreated }) {
                     <p style={{ color: "#52525B" }}>{keywords.length > 0 ? keywords.join(", ") : "Any comment"}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-medium uppercase" style={{ color: "#A1A1AA" }}>Comment Reply</p>
-                    <p style={{ color: "#52525B" }}>{commentReplyEnabled ? commentReplyMessage : "Disabled"}</p>
+                    <p className="text-[10px] font-medium uppercase" style={{ color: "#A1A1AA" }}>Comment Replies</p>
+                    <p style={{ color: "#52525B" }}>{commentReplyEnabled ? `${replyMessages.filter(m => typeof m === "string" && m.trim()).length} variant(s)` : "Disabled"}</p>
                   </div>
                   <div>
                     <p className="text-[10px] font-medium uppercase" style={{ color: "#A1A1AA" }}>Follower Gate</p>
                     <p style={{ color: "#52525B" }}>{followerGateEnabled ? "Required" : "Off"}</p>
                   </div>
+                  {linkUrl && (
+                    <div>
+                      <p className="text-[10px] font-medium uppercase" style={{ color: "#A1A1AA" }}>Link</p>
+                      <p className="truncate" style={{ color: "#52525B" }}>{linkUrl}</p>
+                    </div>
+                  )}
+                  {followUpEnabled && (
+                    <div>
+                      <p className="text-[10px] font-medium uppercase" style={{ color: "#A1A1AA" }}>Follow-Up</p>
+                      <p style={{ color: "#52525B" }}>{followUpOptions.filter(o => typeof o === "string" && o.trim()).length} options</p>
+                    </div>
+                  )}
                 </div>
                 {dmMessage && (
                   <div>
