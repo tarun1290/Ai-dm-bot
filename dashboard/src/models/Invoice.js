@@ -25,8 +25,8 @@ const InvoiceSchema = new mongoose.Schema({
 });
 
 // Generate invoice number as "ENG-YYYY-NNNN" before save
-InvoiceSchema.pre("save", async function (next) {
-  if (this.invoiceNumber) return next();
+InvoiceSchema.pre("save", async function () {
+  if (this.invoiceNumber) return;
 
   const year = new Date().getFullYear();
   const counterId = `invoice_${year}`;
@@ -38,7 +38,6 @@ InvoiceSchema.pre("save", async function (next) {
   );
 
   this.invoiceNumber = `ENG-${year}-${String(counter.seq).padStart(4, "0")}`;
-  next();
 });
 
 export default mongoose.models.Invoice || mongoose.model("Invoice", InvoiceSchema);

@@ -60,9 +60,8 @@ AutomationSchema.index({ accountId: 1, enabled: 1 });
 AutomationSchema.index({ accountId: 1, type: 1 });
 
 // Keep updatedAt current on every save
-AutomationSchema.pre("save", function (next) {
+AutomationSchema.pre("save", function () {
   this.updatedAt = new Date();
-  next();
 });
 
 export default mongoose.models.Automation ||

@@ -1129,8 +1129,6 @@ function CreateModal({ accountId, onClose, onCreated }) {
   };
 
   const handleCreate = async () => {
-    console.log("[handleCreate] typeof createAutomationAction:", typeof createAutomationAction);
-    console.log("[handleCreate] accountId:", accountId);
     setCreating(true);
     let res;
     try {
