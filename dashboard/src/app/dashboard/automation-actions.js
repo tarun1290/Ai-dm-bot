@@ -33,6 +33,13 @@ async function resolveUserObjectId(userId) {
   return user?._id || null;
 }
 
+// Safely coerce a value to an array of strings
+function safeStringArray(val) {
+  if (Array.isArray(val)) return val.filter(v => typeof v === "string");
+  if (typeof val === "string" && val) return [val];
+  return [];
+}
+
 // Maps Automation.type → Event.type for activity queries
 const AUTOMATION_EVENT_MAP = {
   comment_to_dm: "comment",
@@ -75,20 +82,24 @@ export async function createAutomationAction(accountId, data) {
   }
 
   try {
+    // Use safeStringArray to guard against non-array values from client serialization
+    const replyMsgs = safeStringArray(data.commentReply?.messages);
+    const fuOptions = safeStringArray(data.followUp?.options);
+    const kw = safeStringArray(data.keywords);
+    const mIds = safeStringArray(data.mediaIds);
+
     const automation = await Automation.create({
       userId: userObjectId,
       accountId: account._id,
       name: data.name,
       type: data.type,
       scope: data.scope || "account_wide",
-      mediaIds: data.scope === "post_specific" ? (data.mediaIds || []) : [],
-      keywords: data.keywords || [],
+      mediaIds: data.scope === "post_specific" ? mIds : [],
+      keywords: kw,
       caseSensitive: data.caseSensitive ?? false,
       commentReply: {
         enabled: data.commentReply?.enabled ?? true,
-        messages: Array.isArray(data.commentReply?.messages) && data.commentReply.messages.length
-          ? data.commentReply.messages.filter(m => typeof m === "string")
-          : ["Check your DMs! \ud83d\udce9"],
+        messages: replyMsgs.length > 0 ? replyMsgs : ["Check your DMs! \ud83d\udce9"],
       },
       dmMessage: data.dmMessage || "",
       linkUrl: data.linkUrl || "",
@@ -98,9 +109,7 @@ export async function createAutomationAction(accountId, data) {
       followUp: {
         enabled: data.followUp?.enabled ?? false,
         question: data.followUp?.question || "",
-        options: Array.isArray(data.followUp?.options) && data.followUp.options.length
-          ? data.followUp.options.filter(o => typeof o === "string")
-          : ["", ""],
+        options: fuOptions.length > 0 ? fuOptions : ["", ""],
         response: data.followUp?.response || "",
       },
       followerGate: {

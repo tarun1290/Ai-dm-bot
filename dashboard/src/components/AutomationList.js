@@ -506,28 +506,53 @@ function SettingsTab({ automation, accountId, onUpdated }) {
   }, [accountId, media.length, loadingMedia]);
 
   const handleSave = async () => {
-    if (typeof updateAutomationAction !== "function") {
-      toast.error("Internal error: save action not available. Please reload the page.");
-      return;
-    }
     setSaving(true);
     try {
-      const safeReplyMessages = (Array.isArray(replyMessages) ? replyMessages : []).filter(m => typeof m === "string" && m.trim());
-      const safeFollowUpOptions = (Array.isArray(followUpOptions) ? followUpOptions : []).filter(o => typeof o === "string" && o.trim());
-      const res = await updateAutomationAction(automation._id, {
-        name, scope,
-        mediaIds: scope === "post_specific" ? mediaIds : [],
-        keywords: Array.isArray(keywords) ? keywords : [],
-        commentReply: { enabled: commentReplyEnabled, messages: safeReplyMessages.length ? safeReplyMessages : ["Check your DMs! \ud83d\udce9"] },
-        dmMessage, linkUrl, buttonText, deliveryMessage, deliveryButtonText,
-        followUp: { enabled: followUpEnabled, question: followUpQuestion, options: safeFollowUpOptions.length >= 2 ? safeFollowUpOptions : ["Option 1", "Option 2"], response: followUpResponse },
-        followerGate: { enabled: followerGateEnabled, nonFollowerMessage: followerGateMessage },
-      });
-      if (res.success) { toast.success("Automation saved!"); onUpdated(res.automation); }
-      else toast.error(res.error || "Failed to save");
+      const safeMessages = Array.isArray(replyMessages)
+        ? replyMessages.filter(m => typeof m === "string" && m.trim())
+        : [];
+      const safeFuOpts = Array.isArray(followUpOptions)
+        ? followUpOptions.filter(o => typeof o === "string" && o.trim())
+        : [];
+      const safeKw = Array.isArray(keywords) ? keywords : [];
+
+      const payload = {
+        name: String(name || ""),
+        scope: String(scope || "account_wide"),
+        mediaIds: scope === "post_specific" ? (Array.isArray(mediaIds) ? mediaIds : []) : [],
+        keywords: safeKw,
+        commentReply: {
+          enabled: Boolean(commentReplyEnabled),
+          messages: safeMessages.length > 0 ? safeMessages : ["Check your DMs! \ud83d\udce9"],
+        },
+        dmMessage: String(dmMessage || ""),
+        linkUrl: String(linkUrl || ""),
+        buttonText: String(buttonText || ""),
+        deliveryMessage: String(deliveryMessage || ""),
+        deliveryButtonText: String(deliveryButtonText || ""),
+        followUp: {
+          enabled: Boolean(followUpEnabled),
+          question: String(followUpQuestion || ""),
+          options: safeFuOpts.length >= 2 ? safeFuOpts : ["Option 1", "Option 2"],
+          response: String(followUpResponse || ""),
+        },
+        followerGate: {
+          enabled: Boolean(followerGateEnabled),
+          nonFollowerMessage: String(followerGateMessage || ""),
+        },
+      };
+
+      const res = await updateAutomationAction(String(automation._id), payload);
+
+      if (res && res.success) {
+        toast.success("Automation saved!");
+        if (typeof onUpdated === "function") onUpdated(res.automation);
+      } else {
+        toast.error((res && res.error) || "Failed to save");
+      }
     } catch (e) {
       console.error("[UpdateAutomation] Error:", e);
-      toast.error(e?.message || "Something went wrong");
+      toast.error(typeof e === "object" && e !== null && e.message ? e.message : "Something went wrong");
     }
     finally { setSaving(false); }
   };
@@ -1103,35 +1128,59 @@ function CreateModal({ accountId, onClose, onCreated }) {
     setKeywordInput("");
   };
 
+  // Root cause fix: build a plain-object payload with only serializable primitives,
+  // then call the server action. Previous versions passed shorthand property names
+  // that could collide with minified identifiers during RSC serialization.
   const handleCreate = async () => {
-    if (typeof createAutomationAction !== "function") {
-      console.error("[CreateAutomation] createAutomationAction is", typeof createAutomationAction, createAutomationAction);
-      toast.error("Internal error: save action not available. Please reload the page.");
-      return;
-    }
     setCreating(true);
     try {
-      const safeReplyMessages = (Array.isArray(replyMessages) ? replyMessages : []).filter(m => typeof m === "string" && m.trim());
-      const safeFollowUpOptions = (Array.isArray(followUpOptions) ? followUpOptions : []).filter(o => typeof o === "string" && o.trim());
-      const res = await createAutomationAction(accountId, {
-        name, type: selectedType, scope,
-        mediaIds: scope === "post_specific" ? mediaIds : [],
-        keywords: Array.isArray(keywords) ? keywords : [],
-        commentReply: { enabled: commentReplyEnabled, messages: safeReplyMessages.length ? safeReplyMessages : ["Check your DMs! \ud83d\udce9"] },
-        dmMessage, linkUrl, buttonText, deliveryMessage, deliveryButtonText,
-        followUp: { enabled: followUpEnabled, question: followUpQuestion, options: safeFollowUpOptions.length >= 2 ? safeFollowUpOptions : ["Option 1", "Option 2"], response: followUpResponse },
-        followerGate: { enabled: followerGateEnabled, nonFollowerMessage: followerGateMessage },
-      });
-      if (res.success) {
+      const safeMessages = Array.isArray(replyMessages)
+        ? replyMessages.filter(m => typeof m === "string" && m.trim())
+        : [];
+      const safeFuOpts = Array.isArray(followUpOptions)
+        ? followUpOptions.filter(o => typeof o === "string" && o.trim())
+        : [];
+      const safeKw = Array.isArray(keywords) ? keywords : [];
+
+      const payload = {
+        name: String(name || ""),
+        type: String(selectedType || ""),
+        scope: String(scope || "account_wide"),
+        mediaIds: scope === "post_specific" ? (Array.isArray(mediaIds) ? mediaIds : []) : [],
+        keywords: safeKw,
+        commentReply: {
+          enabled: Boolean(commentReplyEnabled),
+          messages: safeMessages.length > 0 ? safeMessages : ["Check your DMs! \ud83d\udce9"],
+        },
+        dmMessage: String(dmMessage || ""),
+        linkUrl: String(linkUrl || ""),
+        buttonText: String(buttonText || ""),
+        deliveryMessage: String(deliveryMessage || ""),
+        deliveryButtonText: String(deliveryButtonText || ""),
+        followUp: {
+          enabled: Boolean(followUpEnabled),
+          question: String(followUpQuestion || ""),
+          options: safeFuOpts.length >= 2 ? safeFuOpts : ["Option 1", "Option 2"],
+          response: String(followUpResponse || ""),
+        },
+        followerGate: {
+          enabled: Boolean(followerGateEnabled),
+          nonFollowerMessage: String(followerGateMessage || ""),
+        },
+      };
+
+      const res = await createAutomationAction(String(accountId), payload);
+
+      if (res && res.success) {
         toast.success("Automation created!");
-        onCreated(res.automation);
-        onClose();
+        if (typeof onCreated === "function") onCreated(res.automation);
+        if (typeof onClose === "function") onClose();
       } else {
-        toast.error(res.error || "Failed to create automation");
+        toast.error((res && res.error) || "Failed to create automation");
       }
     } catch (e) {
       console.error("[CreateAutomation] Error:", e);
-      toast.error(e?.message || "Something went wrong");
+      toast.error(typeof e === "object" && e !== null && e.message ? e.message : "Something went wrong");
     } finally {
       setCreating(false);
     }
